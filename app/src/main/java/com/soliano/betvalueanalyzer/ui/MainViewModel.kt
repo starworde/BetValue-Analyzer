@@ -41,6 +41,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.withContext
+import java.text.Normalizer
+import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 
 sealed interface SyncStatus {
@@ -143,9 +145,15 @@ class MainViewModel(
 
     private val displayOddsState = oddsUiState.map { odds ->
         withContext(Dispatchers.Default) {
+            val displayPredictions = odds.predictions
+                .map { it.cleanedForDisplay() }
+                .deduplicatedPredictionsForDisplay()
+            val displayEvents = odds.events
+                .map { it.cleanedForDisplay() }
+                .deduplicatedEventsForDisplay()
             OddsUiStreams(
-                predictions = odds.predictions.map { it.cleanedForDisplay() },
-                events = odds.events.map { it.cleanedForDisplay() },
+                predictions = displayPredictions,
+                events = displayEvents,
                 liveEvents = odds.liveEvents.map { it.cleanedForDisplay() },
             )
         }
@@ -687,6 +695,108 @@ private data class OddsUiStreams(
     val events: List<UpcomingEventEntity>,
     val liveEvents: List<LiveEventEntity>,
 )
+
+private fun List<PredictionEntity>.deduplicatedPredictionsForDisplay(): List<PredictionEntity> {
+    if (size < 2) return this
+    val bestByEvent = LinkedHashMap<String, PredictionEntity>()
+    for (prediction in this) {
+        val key = prediction.displayEventKey()
+        val existing = bestByEvent[key]
+        if (existing == null || prediction.isBetterDisplayCandidateThan(existing)) {
+            bestByEvent[key] = prediction
+        }
+    }
+    return bestByEvent.values.toList()
+}
+
+private fun List<UpcomingEventEntity>.deduplicatedEventsForDisplay(): List<UpcomingEventEntity> {
+    if (size < 2) return this
+    val bestByEvent = LinkedHashMap<String, UpcomingEventEntity>()
+    for (event in this) {
+        val key = event.displayEventKey()
+        val existing = bestByEvent[key]
+        if (existing == null || event.isBetterDisplayCandidateThan(existing)) {
+            bestByEvent[key] = event
+        }
+    }
+    return bestByEvent.values.toList()
+}
+
+private fun PredictionEntity.displayEventKey(): String {
+    val sport = sportKey.substringBefore('/').displayKeyPart()
+    val competition = competitionName.displayKeyPart()
+    val participants = normalizedPairParticipants(homeTeam, awayTeam)
+        .ifBlank { normalizedParticipants(selection, market) }
+        .ifBlank { eventId.displayKeyPart() }
+    return listOf("prediction", sport, competition, commenceTime.displayDayBucket(), participants).joinToString("|")
+}
+
+private fun UpcomingEventEntity.displayEventKey(): String {
+    val sport = sportKey.substringBefore('/').displayKeyPart()
+    val competition = competitionName.displayKeyPart()
+    val participants = normalizedPairParticipants(participantA, participantB)
+        .ifBlank { eventName.displayKeyPart() }
+        .ifBlank { id.displayKeyPart() }
+    return listOf("event", sport, competition, commenceTime.displayDayBucket(), participants).joinToString("|")
+}
+
+private fun PredictionEntity.isBetterDisplayCandidateThan(other: PredictionEntity): Boolean {
+    val comparator = compareBy<PredictionEntity> { predictionDisplayCategoryRank(it.category) }
+        .thenBy { it.confidenceScore }
+        .thenBy { it.sourceAgreement }
+        .thenBy { it.sourceLastUpdate }
+        .thenBy { it.sourceName.length }
+    return comparator.compare(this, other) > 0
+}
+
+private fun UpcomingEventEntity.isBetterDisplayCandidateThan(other: UpcomingEventEntity): Boolean {
+    val comparator = compareBy<UpcomingEventEntity> { if (it.analysisId?.isNotBlank() == true) 1 else 0 }
+        .thenBy { eventSourceRank(it.sourceName) }
+        .thenBy { it.sourceName.length }
+        .thenByDescending { it.id.length }
+    return comparator.compare(this, other) > 0
+}
+
+private fun predictionDisplayCategoryRank(category: String): Int = when (predictionCategoryKey(category)) {
+    "safe" -> 3
+    "mitige" -> 2
+    "exotique" -> 1
+    else -> 0
+}
+
+private fun eventSourceRank(sourceName: String): Int {
+    val normalized = sourceName.displayKeyPart()
+    return when {
+        "official" in normalized || "officiel" in normalized -> 4
+        "espn" in normalized -> 3
+        "sportsdb" in normalized || "openligadb" in normalized -> 2
+        normalized.isNotBlank() -> 1
+        else -> 0
+    }
+}
+
+private fun normalizedParticipants(first: String, second: String): String {
+    val values = listOf(first.displayKeyPart(), second.displayKeyPart()).filter { it.isNotBlank() }
+    return when {
+        values.size >= 2 -> values.sorted().joinToString("~")
+        values.size == 1 -> values.first()
+        else -> ""
+    }
+}
+
+private fun normalizedPairParticipants(first: String, second: String): String {
+    val values = listOf(first.displayKeyPart(), second.displayKeyPart()).filter { it.isNotBlank() }
+    return if (values.size >= 2) values.sorted().joinToString("~") else ""
+}
+
+private fun Long.displayDayBucket(): Long = (this + 2 * 60 * 60 * 1000L) / (24 * 60 * 60 * 1000L)
+
+private fun String.displayKeyPart(): String {
+    val normalized = Normalizer.normalize(this, Normalizer.Form.NFD)
+        .replace("\\p{Mn}+".toRegex(), "")
+        .lowercase(Locale.ROOT)
+    return normalized.replace("[^a-z0-9]+".toRegex(), " ").trim()
+}
 
 private val TEAM_DEEP_SPORTS = setOf(
     "soccer",

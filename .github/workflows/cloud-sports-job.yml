@@ -3,8 +3,8 @@ name: BetValue cloud sports job
 on:
   workflow_dispatch:
   schedule:
-    # UTC. En Europe/Paris cela couvre matin, midi, fin d'apres-midi et soiree.
-    - cron: "0 5,10,15,20 * * *"
+    # UTC. Check automatique toutes les 2 heures pour garder Firebase plus frais sans service payant.
+    - cron: "0 */2 * * *"
 
 permissions:
   contents: read
