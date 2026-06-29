@@ -1,0 +1,39 @@
+name: BetValue cloud sports job
+
+on:
+  workflow_dispatch:
+  schedule:
+    # UTC. En Europe/Paris cela couvre matin, midi, fin d'apres-midi et soiree.
+    - cron: "0 5,10,15,20 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  cloud-sports-job:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    defaults:
+      run:
+        working-directory: cloud-job
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm install --omit=dev
+
+      - name: Run cloud sports job
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+          EVENT_LOOKAHEAD_DAYS: "365"
+          MAX_RESULTS_TO_WRITE: "900"
+        run: npm start

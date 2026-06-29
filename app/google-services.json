@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1004749734997",
+    "project_id": "betvalue-analyzer",
+    "storage_bucket": "betvalue-analyzer.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1004749734997:android:cd509077270e0e828a00dc",
+        "android_client_info": {
+          "package_name": "com.soliano.betvalueanalyzer"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCazI868YUFSEMk-e4lis1m-NJxwRZwWyo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -1,0 +1,15 @@
+*.iml
+.gradle/
+.idea/
+local.properties
+build/
+app/build/
+captures/
+.externalNativeBuild/
+.cxx/
+tmp/
+output/
+.codex/
+.agents/
+.codex-remote-attachments/
+*.apk

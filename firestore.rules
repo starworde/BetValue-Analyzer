@@ -1,0 +1,192 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /shared_results/{eventId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+        && isValidSharedWrite(request.resource.data)
+        && request.resource.data.deviceId == request.auth.uid;
+      allow update: if request.auth != null
+        && isValidSharedWrite(request.resource.data)
+        && request.resource.data.deviceId == request.auth.uid
+        && request.resource.data.eventId == resource.data.eventId
+        && request.resource.data.updatedAt >= resource.data.updatedAt;
+      allow delete: if false;
+    }
+
+    match /cloud_results/{eventId} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
+    match /cloud_diagnostics/{docId} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
+    function isValidSharedWrite(data) {
+      return isValidSharedResult(data) || isValidSharedCalendarEvent(data);
+    }
+
+    function isValidSharedResult(data) {
+      return data.keys().hasAll(requiredSharedResultKeys())
+        && data.keys().hasOnly(allowedSharedResultKeys())
+        && data.documentType == 'prediction'
+        && isNonEmptyString(data.eventId, 220)
+        && isNonEmptyString(data.sport, 80)
+        && isNonEmptyString(data.competition, 180)
+        && isNonEmptyString(data.eventName, 220)
+        && isNonEmptyString(data.market, 160)
+        && isNonEmptyString(data.selection, 180)
+        && isNonEmptyString(data.appVersion, 40)
+        && isNonEmptyString(data.deviceId, 128)
+        && data.eventDate is int
+        && data.updatedAt is int
+        && data.expiresAt is int
+        && data.expiresAt > request.time.toMillis()
+        && data.updatedAt <= request.time.toMillis() + 600000
+        && data.updatedAt >= request.time.toMillis() - 86400000
+        && data.eventDate >= request.time.toMillis() - 172800000
+        && data.reliability is int
+        && data.reliability >= 1
+        && data.reliability <= 100
+        && data.confidenceScore is int
+        && data.confidenceScore >= 1
+        && data.confidenceScore <= 100
+        && isProbability(data.impliedProbability)
+        && isProbability(data.consensusProbability)
+        && isSafeString(data.calculatedResults, 2400)
+        && isSafeString(data.probabilities, 1200)
+        && isSafeString(data.scenarios, 2400)
+        && isSafeString(data.statSummary, 2400)
+        && isSafeString(data.playerScenarios, 2400)
+        && isSafeString(data.sourceDetails, 2400)
+        && isSafeString(data.contextInsights, 2400)
+        && isSafeString(data.positiveArguments, 1200)
+        && isSafeString(data.negativeArguments, 1200)
+        && isSafeString(data.homeLineup, 2400)
+        && isSafeString(data.awayLineup, 2400);
+    }
+
+    function isValidSharedCalendarEvent(data) {
+      return data.keys().hasAll(requiredSharedCalendarEventKeys())
+        && data.keys().hasOnly(allowedSharedCalendarEventKeys())
+        && data.documentType == 'calendar_event'
+        && isNonEmptyString(data.eventId, 220)
+        && isNonEmptyString(data.sport, 80)
+        && isNonEmptyString(data.competition, 180)
+        && isNonEmptyString(data.eventName, 220)
+        && isNonEmptyString(data.market, 160)
+        && isNonEmptyString(data.selection, 220)
+        && isNonEmptyString(data.appVersion, 40)
+        && isNonEmptyString(data.deviceId, 128)
+        && data.eventDate is int
+        && data.updatedAt is int
+        && data.expiresAt is int
+        && data.expiresAt > request.time.toMillis()
+        && data.updatedAt <= request.time.toMillis() + 600000
+        && data.updatedAt >= request.time.toMillis() - 86400000
+        && data.eventDate >= request.time.toMillis() - 172800000
+        && data.reliability is int
+        && data.reliability >= 1
+        && data.reliability <= 100
+        && data.confidenceScore is int
+        && data.confidenceScore >= 1
+        && data.confidenceScore <= 100
+        && isProbability(data.impliedProbability)
+        && isProbability(data.consensusProbability)
+        && isSafeString(data.calculatedResults, 2400)
+        && isSafeString(data.probabilities, 1200)
+        && isSafeString(data.scenarios, 2400)
+        && isSafeString(data.statSummary, 2400)
+        && isSafeString(data.playerScenarios, 2400)
+        && isSafeString(data.sourceDetails, 2400)
+        && isSafeString(data.contextInsights, 2400)
+        && isSafeString(data.positiveArguments, 1200)
+        && isSafeString(data.negativeArguments, 1200)
+        && isSafeString(data.homeLineup, 2400)
+        && isSafeString(data.awayLineup, 2400)
+        && isSafeString(data.competitionKey, 180)
+        && isSafeString(data.participantA, 140)
+        && isSafeString(data.participantB, 140)
+        && isSafeString(data.eventType, 60)
+        && isSafeString(data.analysisId, 260);
+    }
+
+    function requiredSharedResultKeys() {
+      return [
+        'documentType',
+        'eventId',
+        'sport',
+        'sportTitle',
+        'competition',
+        'eventName',
+        'eventDate',
+        'calculatedResults',
+        'probabilities',
+        'scenarios',
+        'reliability',
+        'appVersion',
+        'deviceId',
+        'updatedAt',
+        'expiresAt',
+        'predictionId',
+        'homeTeam',
+        'awayTeam',
+        'market',
+        'selection',
+        'impliedProbability',
+        'consensusProbability',
+        'valueEdge',
+        'expectedValue',
+        'confidenceScore',
+        'riskLevel',
+        'category',
+        'sourceName',
+        'expectedScore',
+        'statSummary',
+        'positiveArguments',
+        'negativeArguments',
+        'homeLineupStatus',
+        'homeLineup',
+        'awayLineupStatus',
+        'awayLineup',
+        'playerScenarios',
+        'sourceDetails',
+        'contextInsights',
+        'sourceAgreement'
+      ];
+    }
+
+    function allowedSharedResultKeys() {
+      return requiredSharedResultKeys();
+    }
+
+    function requiredSharedCalendarEventKeys() {
+      return requiredSharedResultKeys() + [
+        'competitionKey',
+        'participantA',
+        'participantB',
+        'eventType',
+        'analysisId'
+      ];
+    }
+
+    function allowedSharedCalendarEventKeys() {
+      return requiredSharedCalendarEventKeys();
+    }
+
+    function isNonEmptyString(value, maxSize) {
+      return value is string && value.size() > 0 && value.size() <= maxSize;
+    }
+
+    function isSafeString(value, maxSize) {
+      return value is string && value.size() <= maxSize;
+    }
+
+    function isProbability(value) {
+      return value is number && value >= 0 && value <= 1;
+    }
+  }
+}

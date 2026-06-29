@@ -1,0 +1,4 @@
+-keep class androidx.room.** { *; }
+-keep class com.soliano.betvalueanalyzer.data.local.** { *; }
+-keepattributes Signature,*Annotation*
+-keep class com.soliano.betvalueanalyzer.data.remote.** { *; }
