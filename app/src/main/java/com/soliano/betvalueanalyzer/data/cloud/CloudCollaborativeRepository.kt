@@ -57,30 +57,43 @@ class CloudCollaborativeRepository(
             var attemptedUpload = 0
             var uploaded = 0
             var lastUpload = settings.lastCloudUploadEpoch
+            var uploadErrorMessage = ""
             val canUpload = forceUpload || now - settings.lastCloudUploadEpoch >= CLOUD_WRITE_INTERVAL_MS
             if (publishLocal && canUpload) {
-                val predictionPayload = localPredictions
-                    .asSequence()
-                    .mapNotNull { it.toCloudSharedResult(appVersion, deviceId, now) }
-                    .toList()
-                val predictionDocumentIds = predictionPayload
-                    .asSequence()
-                    .map { cloudDocumentIdFor(it.eventId) }
-                    .toSet()
-                val existingDocumentIds = remoteDataSource.fetchKnownDocumentIds(now, CLOUD_MAX_KNOWN_DOCS_PER_SYNC)
-                val calendarPayload = localEvents
-                    .asSequence()
-                    .mapNotNull { it.toCloudSharedCalendarEvent(appVersion, deviceId, now) }
-                    .filter { event ->
-                        val documentId = cloudDocumentIdFor(event.eventId)
-                        documentId !in predictionDocumentIds && documentId !in existingDocumentIds
+                runCatching {
+                    val predictionPayload = localPredictions
+                        .asSequence()
+                        .mapNotNull { it.toCloudSharedResult(appVersion, deviceId, now) }
+                        .toList()
+                    val predictionDocumentIds = predictionPayload
+                        .asSequence()
+                        .map { cloudDocumentIdFor(it.eventId) }
+                        .toSet()
+                    val existingDocumentIds = runCatching {
+                        remoteDataSource.fetchKnownDocumentIds(now, CLOUD_MAX_KNOWN_DOCS_PER_SYNC)
+                    }.getOrDefault(emptySet())
+                    val calendarPayload = localEvents
+                        .asSequence()
+                        .mapNotNull { it.toCloudSharedCalendarEvent(appVersion, deviceId, now) }
+                        .filter { event ->
+                            val documentId = cloudDocumentIdFor(event.eventId)
+                            documentId !in predictionDocumentIds && documentId !in existingDocumentIds
+                        }
+                        .toList()
+                    attemptedUpload = predictionPayload.size + calendarPayload.size
+                    if (predictionPayload.isNotEmpty()) {
+                        uploaded += remoteDataSource.publish(predictionPayload)
                     }
-                    .toList()
-                attemptedUpload = predictionPayload.size + calendarPayload.size
-                if (predictionPayload.isNotEmpty() || calendarPayload.isNotEmpty()) {
-                    uploaded = remoteDataSource.publish(predictionPayload) +
-                        remoteDataSource.publishCalendarEvents(calendarPayload)
-                    lastUpload = now
+                    if (calendarPayload.isNotEmpty()) {
+                        uploaded += runCatching {
+                            remoteDataSource.publishCalendarEvents(calendarPayload)
+                        }.getOrDefault(0)
+                    }
+                    if (uploaded > 0) {
+                        lastUpload = now
+                    }
+                }.onFailure { error ->
+                    uploadErrorMessage = cloudCollaborativeErrorMessage(error)
                 }
             }
 
@@ -88,16 +101,21 @@ class CloudCollaborativeRepository(
             var mergedCount = 0
             var rejectedCount = 0
             var lastRead = settings.lastCloudReadEpoch
+            var fetchErrorMessage = ""
             if (fetchCloud) {
-                val cloudResults = remoteDataSource.fetchRecent(now, CLOUD_MAX_FETCH_PER_SYNC)
-                fetchedCount = cloudResults.size
-                val merge = mergeCloudResults(localPredictions, cloudResults, now)
-                rejectedCount = merge.rejectedCloudCount
-                mergedCount = merge.predictionsToUpsert.size
-                if (merge.predictionsToUpsert.isNotEmpty()) {
-                    predictionDao.upsertAll(merge.predictionsToUpsert)
+                runCatching {
+                    val cloudResults = remoteDataSource.fetchRecent(now, CLOUD_MAX_FETCH_PER_SYNC)
+                    fetchedCount = cloudResults.size
+                    val merge = mergeCloudResults(localPredictions, cloudResults, now)
+                    rejectedCount = merge.rejectedCloudCount
+                    mergedCount = merge.predictionsToUpsert.size
+                    if (merge.predictionsToUpsert.isNotEmpty()) {
+                        predictionDao.upsertAll(merge.predictionsToUpsert)
+                    }
+                    lastRead = now
+                }.onFailure { error ->
+                    fetchErrorMessage = cloudCollaborativeErrorMessage(error)
                 }
-                lastRead = now
             }
 
             CloudSyncReport(
@@ -111,6 +129,11 @@ class CloudCollaborativeRepository(
                 lastSyncEpoch = now,
                 lastUploadEpoch = lastUpload,
                 lastReadEpoch = lastRead,
+                errorMessage = when {
+                    fetchErrorMessage.isNotBlank() -> fetchErrorMessage
+                    fetchCloud && lastRead == now -> ""
+                    else -> uploadErrorMessage
+                },
             ).also { preferencesRepository.updateCloudMetadata(it) }
         }.getOrElse { error ->
             val report = CloudSyncReport(
@@ -245,10 +268,18 @@ class FirebaseCloudCollaborativeRemoteDataSource(
     override fun fetchRecent(now: Long, limit: Long): List<CloudSharedResult> {
         val firestore = firestoreOrNull() ?: return emptyList()
         val perCollectionLimit = (limit / 2).coerceAtLeast(40L)
-        return (
-            fetchRecentFromCollection(firestore, "cloud_results", now, perCollectionLimit) +
-                fetchRecentFromCollection(firestore, "shared_results", now, perCollectionLimit)
-            )
+        val cloudResults = runCatching {
+            fetchRecentFromCollection(firestore, "cloud_results", now, perCollectionLimit)
+        }
+        val sharedResults = runCatching {
+            fetchRecentFromCollection(firestore, "shared_results", now, perCollectionLimit)
+        }
+        if (cloudResults.isFailure && sharedResults.isFailure) {
+            throw cloudResults.exceptionOrNull()
+                ?: sharedResults.exceptionOrNull()
+                ?: IllegalStateException("Lecture Firestore indisponible")
+        }
+        return (cloudResults.getOrDefault(emptyList()) + sharedResults.getOrDefault(emptyList()))
             .filter { it.isCoherent(now) }
             .sortedByDescending { it.updatedAt }
             .distinctBy { cloudDocumentIdFor(it.eventId) }
@@ -276,15 +307,17 @@ class FirebaseCloudCollaborativeRemoteDataSource(
 
     override fun fetchKnownDocumentIds(now: Long, limit: Long): Set<String> {
         val firestore = firestoreOrNull() ?: return emptySet()
-        val snapshot = Tasks.await(
-            firestore.collection("shared_results")
-                .whereGreaterThan("expiresAt", now)
-                .limit(limit)
-                .get(),
-            12,
-            TimeUnit.SECONDS,
-        )
-        return snapshot.documents.map { it.id }.toSet()
+        return runCatching {
+            val snapshot = Tasks.await(
+                firestore.collection("shared_results")
+                    .whereGreaterThan("expiresAt", now)
+                    .limit(limit)
+                    .get(),
+                12,
+                TimeUnit.SECONDS,
+            )
+            snapshot.documents.map { it.id }.toSet()
+        }.getOrDefault(emptySet())
     }
 
     private fun firestoreOrNull(): FirebaseFirestore? {
