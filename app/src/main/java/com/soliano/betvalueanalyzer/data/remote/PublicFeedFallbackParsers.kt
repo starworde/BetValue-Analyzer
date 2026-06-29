@@ -17,21 +17,44 @@ object EspnFallbackParser {
                 name = event.text("name"),
                 shortName = event.text("shortName"),
                 competitions = event.array("competitions").mapNotNull(::competition),
+                groupings = event.array("groupings").mapNotNull(::grouping),
                 status = status(event.obj("status")),
             )
         }
     }.getOrDefault(emptyList())
 
+    private fun grouping(element: JsonElement): EspnGroupingDto? {
+        val value = element.asObject() ?: return null
+        val grouping = value.obj("grouping")
+        return EspnGroupingDto(
+            grouping = grouping?.let {
+                EspnGroupingInfoDto(
+                    id = it.text("id"),
+                    slug = it.text("slug"),
+                    displayName = it.text("displayName"),
+                )
+            },
+            competitions = value.array("competitions").mapNotNull(::competition),
+        )
+    }
+
     private fun competition(element: JsonElement): EspnCompetitionDto? {
         val value = element.asObject() ?: return null
         return EspnCompetitionDto(
             id = value.text("id"),
+            uid = value.text("uid"),
             date = value.text("date"),
             startDate = value.text("startDate"),
             type = value.obj("type")?.let { type ->
                 EspnCompetitionTypeDto(
                     id = type.text("id"),
                     abbreviation = type.text("abbreviation"),
+                )
+            },
+            round = value.obj("round")?.let { round ->
+                EspnRoundDto(
+                    id = round.text("id"),
+                    displayName = round.text("displayName"),
                 )
             },
             competitors = value.array("competitors").mapNotNull(::competitor),
@@ -130,6 +153,50 @@ object TheSportsDbFallbackParser {
             )
         }
     }.getOrDefault(emptyList())
+}
+
+object VolleyballWorldFallbackParser {
+    fun parse(json: String): List<ExternalScheduleEvent> = runCatching {
+        JsonParser.parseString(json).asJsonObject.array("matches").mapNotNull { element ->
+            val match = element.asObject() ?: return@mapNotNull null
+            val id = match.text("matchNo") ?: return@mapNotNull null
+            val timestamp = match.text("matchDateUtc") ?: return@mapNotNull null
+            val teams = match.volleyballWorldTeams()
+            if (teams.first.isBlank() || teams.second.isBlank()) return@mapNotNull null
+            val competition = listOf(
+                match.text("competitionFullName") ?: match.text("competitionShortName") ?: "Volleyball Nations League",
+                match.text("genderText") ?: match.text("gender"),
+                match.text("roundName"),
+                match.obj("pool")?.text("name"),
+            ).filter { !it.isNullOrBlank() }.joinToString(" · ")
+            ExternalScheduleEvent(
+                id = "vw-$id",
+                timestamp = timestamp.normalizedExternalTimestamp(),
+                eventName = "${teams.first} vs ${teams.second}",
+                sport = "Volleyball",
+                leagueId = "volleyball-world-vnl",
+                leagueName = competition,
+                homeTeam = teams.first,
+                awayTeam = teams.second,
+                homeTeamId = match.text("teamANo"),
+                awayTeamId = match.text("teamBNo"),
+                homeScore = match.text("teamAScore")?.toIntOrNull()?.takeIf { it >= 0 },
+                awayScore = match.text("teamBScore")?.toIntOrNull()?.takeIf { it >= 0 },
+                status = match.text("matchStatus"),
+                progress = match.text("currentSetNo")?.let { "Set $it" },
+            )
+        }
+    }.getOrDefault(emptyList())
+
+    private fun JsonObject.volleyballWorldTeams(): Pair<String, String> {
+        val encoded = text("matchCenterUrl")
+            ?.substringAfter("match=", "")
+            ?.takeIf { it.isNotBlank() }
+            .orEmpty()
+        val decoded = runCatching { java.net.URLDecoder.decode(encoded, "UTF-8") }.getOrDefault(encoded)
+        val parts = decoded.split(Regex("\\s*-vs-\\s*|\\s+vs\\s+", RegexOption.IGNORE_CASE), limit = 2)
+        return parts.getOrNull(0).orEmpty().trim() to parts.getOrNull(1).orEmpty().trim()
+    }
 }
 
 private fun JsonObject.fallbackTimestamp(): String? {

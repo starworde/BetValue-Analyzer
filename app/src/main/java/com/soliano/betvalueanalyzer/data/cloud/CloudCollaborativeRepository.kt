@@ -15,7 +15,7 @@ import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.flow.first
 
 private const val CLOUD_WRITE_INTERVAL_MS = 5 * 60 * 1000L
-private const val CLOUD_MAX_FETCH_PER_SYNC = 120L
+private const val CLOUD_MAX_FETCH_PER_SYNC = 1_200L
 private const val CLOUD_MAX_KNOWN_DOCS_PER_SYNC = 5_000L
 private const val CLOUD_FIRESTORE_BATCH_LIMIT = 450
 
@@ -111,6 +111,9 @@ class CloudCollaborativeRepository(
                     mergedCount = merge.predictionsToUpsert.size
                     if (merge.predictionsToUpsert.isNotEmpty()) {
                         predictionDao.upsertAll(merge.predictionsToUpsert)
+                    }
+                    if (merge.eventsToUpsert.isNotEmpty()) {
+                        upcomingEventDao.upsertAll(merge.eventsToUpsert)
                     }
                     lastRead = now
                 }.onFailure { error ->
@@ -267,7 +270,7 @@ class FirebaseCloudCollaborativeRemoteDataSource(
 
     override fun fetchRecent(now: Long, limit: Long): List<CloudSharedResult> {
         val firestore = firestoreOrNull() ?: return emptyList()
-        val perCollectionLimit = (limit / 2).coerceAtLeast(40L)
+        val perCollectionLimit = limit.coerceAtLeast(120L)
         val cloudResults = runCatching {
             fetchRecentFromCollection(firestore, "cloud_results", now, perCollectionLimit)
         }

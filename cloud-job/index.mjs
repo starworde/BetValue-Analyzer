@@ -4,7 +4,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const EVENT_LOOKAHEAD_DAYS = Number.parseInt(process.env.EVENT_LOOKAHEAD_DAYS ?? "365", 10);
 const EVENT_LOOKBACK_MS = 48 * 60 * 60 * 1000;
 const MAX_EVENTS_PER_SOURCE = Number.parseInt(process.env.MAX_EVENTS_PER_SOURCE ?? "120", 10);
-const MAX_RESULTS_TO_WRITE = Number.parseInt(process.env.MAX_RESULTS_TO_WRITE ?? "900", 10);
+const MAX_RESULTS_TO_WRITE = Number.parseInt(process.env.MAX_RESULTS_TO_WRITE ?? "1200", 10);
 const MAX_NEWS_EVENTS = Number.parseInt(process.env.MAX_NEWS_EVENTS ?? "80", 10);
 const HTTP_TIMEOUT_MS = Number.parseInt(process.env.HTTP_TIMEOUT_MS ?? "16000", 10);
 const USER_AGENT = "BetValueAnalyzer-GitHubActions/1.0 (+public sports schedules)";
@@ -18,8 +18,8 @@ const ESPN_SOURCES = [
   { sport: "football", league: "nfl", sportTitle: "Football américain", competition: "NFL", eventType: "MATCH" },
   { sport: "golf", league: "pga", sportTitle: "Golf", competition: "PGA Tour", eventType: "TOURNAMENT" },
   { sport: "golf", league: "lpga", sportTitle: "Golf", competition: "LPGA Tour", eventType: "TOURNAMENT" },
-  { sport: "tennis", league: "atp", sportTitle: "Tennis", competition: "ATP", eventType: "TOURNAMENT" },
-  { sport: "tennis", league: "wta", sportTitle: "Tennis", competition: "WTA", eventType: "TOURNAMENT" },
+  { sport: "tennis", league: "atp", sportTitle: "Tennis", competition: "ATP", eventType: "MATCH", maxEvents: 220 },
+  { sport: "tennis", league: "wta", sportTitle: "Tennis", competition: "WTA", eventType: "MATCH", maxEvents: 220 },
   { sport: "rugby", league: "all", sportTitle: "Rugby", competition: "Compétition rugby", eventType: "MATCH", maxEvents: 90 },
   { sport: "racing", league: "f1", sportTitle: "Formule 1", competition: "Formule 1", eventType: "GP", maxEvents: 30 },
   { sport: "nascar", league: "nascar-premier", sportTitle: "NASCAR", competition: "NASCAR Cup Series", eventType: "RACE", maxEvents: 30 },
@@ -41,9 +41,9 @@ const THE_SPORTS_DB_LEAGUES = [
   ["5614", "volleyball", "Volley-ball", "CEV Challenge Cup", "MATCH"],
   ["5813", "field_hockey", "Hockey sur gazon", "EuroHockey Championship", "MATCH"],
   ["5812", "field_hockey", "Hockey sur gazon", "Pan American Cup", "MATCH"],
-  ["4464", "tennis", "Tennis", "ATP World Tour", "TOURNAMENT"],
-  ["4517", "tennis", "Tennis", "WTA Tour", "TOURNAMENT"],
-  ["4581", "tennis", "Tennis", "Laver Cup", "TOURNAMENT"],
+  ["4464", "tennis", "Tennis", "ATP World Tour", "MATCH"],
+  ["4517", "tennis", "Tennis", "WTA Tour", "MATCH"],
+  ["4581", "tennis", "Tennis", "Laver Cup", "MATCH"],
   ["4761", "golf", "Golf", "PGA Tour of Australasia", "TOURNAMENT"],
   ["4758", "golf", "Golf", "European Challenge Tour", "TOURNAMENT"],
   ["4555", "snooker", "Snooker", "World Snooker", "TOURNAMENT"],
@@ -61,6 +61,19 @@ const THE_SPORTS_DB_LEAGUES = [
   ["5161", "hockey", "Hockey sur glace", "Canadian QMJHL", "MATCH"],
   ["4465", "cycling", "Cyclisme", "UCI World Tour", "RACE"],
 ].map(([id, sport, sportTitle, competition, eventType]) => ({ id, sport, sportTitle, competition, eventType }));
+
+const SPORTS_DB_SEASON_EXPANDED_SPORTS = new Set(["tennis", "volleyball"]);
+
+const VOLLEYBALL_WORLD_FEEDS = [
+  {
+    tournamentIds: "1661;1662",
+    sport: "volleyball",
+    sportTitle: "Volley-ball",
+    competition: "Volleyball Nations League",
+    eventType: "MATCH",
+    sourceName: "Volleyball World officiel",
+  },
+];
 
 const UCI_FEEDS = [
   ["UCI WorldTour", "https://www.uci.org/api/calendar/upcoming?discipline=ROA&seasonId=1056"],
@@ -231,7 +244,7 @@ async function collectEvents() {
     try {
       const json = await fetchJson(url);
       const events = (json.events || [])
-        .map((event) => fromEspnEvent(event, source))
+        .flatMap((event) => fromEspnEvents(event, source))
         .filter(Boolean);
       collected.push(...events);
     } catch (error) {
@@ -242,10 +255,9 @@ async function collectEvents() {
 
   for (const league of THE_SPORTS_DB_LEAGUES) {
     diagnostics.sourcesChecked += 1;
-    const url = `https://www.thesportsdb.com/api/v1/json/3/eventsnextleague.php?id=${league.id}`;
     try {
-      const json = await fetchJson(url);
-      const events = (json.events || [])
+      const rawEvents = await fetchTheSportsDbLeagueEvents(league, today, end);
+      const events = rawEvents
         .map((event) => fromTheSportsDbEvent(event, league))
         .filter(Boolean);
       collected.push(...events);
@@ -253,6 +265,16 @@ async function collectEvents() {
       recordSourceError(`TheSportsDB ${league.id} ${league.competition}`, error);
     }
     await sleep(900);
+  }
+
+  for (const feed of VOLLEYBALL_WORLD_FEEDS) {
+    diagnostics.sourcesChecked += 1;
+    try {
+      collected.push(...await fetchVolleyballWorldEvents(feed, today, end));
+    } catch (error) {
+      recordSourceError(`Volleyball World ${feed.competition}`, error);
+    }
+    await sleep(250);
   }
 
   for (const feed of UCI_FEEDS) {
@@ -271,6 +293,103 @@ async function collectEvents() {
   return uniqueBy(collected, (event) => event.eventId)
     .filter((event) => event.eventDate >= cutoffPast && event.eventDate <= cutoffFuture)
     .sort((a, b) => a.eventDate - b.eventDate);
+}
+
+async function fetchTheSportsDbLeagueEvents(league, today, end) {
+  const urls = [
+    `https://www.thesportsdb.com/api/v1/json/3/eventsnextleague.php?id=${league.id}`,
+    ...(SPORTS_DB_SEASON_EXPANDED_SPORTS.has(league.sport)
+      ? sportsDbSeasonCandidates(today).map((season) =>
+        `https://www.thesportsdb.com/api/v1/json/3/eventsseason.php?id=${league.id}&s=${encodeURIComponent(season)}`
+      )
+      : []),
+  ];
+  const output = [];
+  for (const url of uniqueBy(urls, (value) => value)) {
+    try {
+      const json = await fetchJson(url);
+      const events = (json.events || []).filter((event) => {
+        const eventDate = parseMillis(event.strTimestamp)
+          || parseMillis(`${event.dateEvent || ""}T${event.strTime || "00:00:00"}Z`);
+        return eventDate >= today.getTime() - EVENT_LOOKBACK_MS && eventDate <= end.getTime() + DAY_MS;
+      });
+      output.push(...events);
+    } catch (error) {
+      recordSourceError(`TheSportsDB ${league.id} ${league.competition} ${url.includes("eventsseason") ? "season" : "next"}`, error);
+    }
+    await sleep(850);
+  }
+  return uniqueBy(output, (event) => event.idEvent || `${event.strEvent}-${event.dateEvent}`);
+}
+
+function sportsDbSeasonCandidates(today) {
+  const year = today.getUTCFullYear();
+  return uniqueBy([
+    String(year),
+    `${year - 1}-${year}`,
+    `${year}-${year + 1}`,
+  ], (value) => value);
+}
+
+async function fetchVolleyballWorldEvents(feed, today, end) {
+  const from = today.toISOString().slice(0, 10);
+  const to = end.toISOString().slice(0, 10);
+  const url = `https://en.volleyballworld.com/api/v1/volley-tournament/${from}/${to}/${feed.tournamentIds}`;
+  const json = await fetchJson(url);
+  return (json.matches || [])
+    .map((match) => fromVolleyballWorldMatch(match, feed))
+    .filter(Boolean)
+    .filter((event) => event.eventDate >= today.getTime() - EVENT_LOOKBACK_MS && event.eventDate <= end.getTime() + DAY_MS);
+}
+
+function fromVolleyballWorldMatch(match, feed) {
+  const eventDate = parseMillis(match.matchDateUtc);
+  if (!eventDate || !match.matchNo) return null;
+  const teams = volleyballWorldTeams(match);
+  if (!teams.home || !teams.away) return null;
+  const competition = cleanName([
+    match.competitionFullName || match.competitionShortName || feed.competition,
+    match.genderText || match.gender,
+    match.roundName,
+    match.pool?.name,
+  ].filter(Boolean).join(" · "));
+  const eventName = `${teams.home} — ${teams.away}`;
+  return {
+    eventId: `volleyball-world:vnl:${match.matchNo}`,
+    sport: feed.sport,
+    sportTitle: feed.sportTitle,
+    competition: competition || feed.competition,
+    eventName,
+    eventDate,
+    homeTeam: teams.home,
+    awayTeam: teams.away,
+    eventType: feed.eventType,
+    sourceName: feed.sourceName,
+    rawStats: [
+      match.city ? `Ville : ${match.city}` : "",
+      match.country ? `Pays : ${match.country}` : "",
+      match.roundName ? `Tour : ${match.roundName}` : "",
+      match.pool?.name ? `Poule : ${match.pool.name}` : "",
+    ].filter(Boolean).join(" · "),
+  };
+}
+
+function volleyballWorldTeams(match) {
+  const encoded = String(match.matchCenterUrl || "").split("match=").at(1) || "";
+  const decoded = safeDecodeURIComponent(encoded);
+  const parts = decoded.split(/\s*-vs-\s*|\s+vs\s+/i);
+  return {
+    home: cleanName(parts[0] || ""),
+    away: cleanName(parts.slice(1).join(" vs ") || ""),
+  };
+}
+
+function safeDecodeURIComponent(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 async function collectNewsContexts(events) {
@@ -327,6 +446,60 @@ async function fetchNewsTitles(event) {
     .slice(0, 4);
 }
 
+function fromEspnEvents(event, source) {
+  if (source.sport !== "tennis") return [fromEspnEvent(event, source)].filter(Boolean);
+  const tournamentName = cleanName(event.name || event.shortName || source.competition);
+  const matches = [];
+  for (const grouping of event.groupings || []) {
+    const groupingName = cleanName(grouping.grouping?.displayName || "");
+    if (!allowedTennisGrouping(source, groupingName)) continue;
+    for (const competition of grouping.competitions || []) {
+      const competitors = competition.competitors || [];
+      const names = competitors
+        .slice()
+        .sort((a, b) => (a.order ?? 999) - (b.order ?? 999))
+        .map((item) => cleanName(item.team?.displayName || item.athlete?.displayName || ""))
+        .filter(Boolean);
+      if (names.length < 2 || names.some(isPlaceholderTennisParticipant)) continue;
+      const round = cleanName(competition.round?.displayName || "");
+      const eventDate = parseMillis(competition.date || competition.startDate || event.date);
+      if (!eventDate) continue;
+      const eventName = names.join(" — ");
+      matches.push({
+        eventId: `espn:${source.sport}:${source.league}:${event.id}:${competition.id || competition.uid || stableId(eventName)}`,
+        sport: source.sport,
+        sportTitle: source.sportTitle,
+        competition: cleanName([source.competition, tournamentName, groupingName, round].filter(Boolean).join(" · ")),
+        eventName,
+        eventDate,
+        homeTeam: names[0],
+        awayTeam: names[1],
+        eventType: "MATCH",
+        sourceName: `ESPN public ${source.sport}/${source.league}`,
+        rawStats: [tournamentName, groupingName, round].filter(Boolean).join(" · "),
+      });
+    }
+  }
+  if (matches.length > 0) return matches;
+  return [fromEspnEvent(event, { ...source, eventType: "TOURNAMENT" })].filter(Boolean);
+}
+
+function allowedTennisGrouping(source, groupingName) {
+  const normalized = String(groupingName || "").toLowerCase();
+  if (source.league === "atp") return normalized.includes("men") && !normalized.includes("women");
+  if (source.league === "wta") return normalized.includes("women");
+  return true;
+}
+
+function isPlaceholderTennisParticipant(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized === "tbd" ||
+    normalized === "bye" ||
+    normalized === "qualifier" ||
+    normalized.startsWith("winner ") ||
+    normalized.startsWith("unknown");
+}
+
 function fromEspnEvent(event, source) {
   const competition = event?.competitions?.[0] || {};
   const competitors = competition.competitors || [];
@@ -364,8 +537,10 @@ function fromTheSportsDbEvent(event, league) {
   const eventDate = parseMillis(event.strTimestamp)
     || parseMillis(`${event.dateEvent || ""}T${event.strTime || "00:00:00"}Z`);
   if (!event?.idEvent || !eventDate) return null;
-  const homeTeam = cleanName(event.strHomeTeam || "");
-  const awayTeam = cleanName(event.strAwayTeam || "");
+  const rawName = cleanName(event.strEvent || "");
+  const inferred = inferParticipantsFromEventName(rawName);
+  const homeTeam = cleanName(event.strHomeTeam || inferred.home || "");
+  const awayTeam = cleanName(event.strAwayTeam || inferred.away || "");
   const eventName = cleanName(event.strEvent || [homeTeam, awayTeam].filter(Boolean).join(" — "));
   return {
     eventId: `tsdb:${event.idEvent}`,
@@ -385,6 +560,46 @@ function fromTheSportsDbEvent(event, league) {
       event.strStatus ? `Statut : ${event.strStatus}` : "",
     ].filter(Boolean).join(" · "),
   };
+}
+
+function inferParticipantsFromEventName(value) {
+  const parts = String(value || "").split(/\s+(?:vs\.?|v)\s+/i);
+  if (parts.length < 2) return { home: "", away: "" };
+  return {
+    home: trimCompetitionPrefix(parts[0]),
+    away: parts.slice(1).join(" vs ").trim(),
+  };
+}
+
+function trimCompetitionPrefix(value) {
+  const text = String(value || "").trim();
+  const padded = ` ${text} `;
+  const lower = padded.toLowerCase();
+  const markers = [
+    " international ",
+    " open ",
+    " classic ",
+    " masters ",
+    " championships ",
+    " championship ",
+    " cup ",
+    " invitational ",
+    " finals ",
+  ];
+  let bestIndex = -1;
+  let bestMarker = "";
+  for (const marker of markers) {
+    const index = lower.lastIndexOf(marker);
+    if (index >= 0 && index + marker.length > bestIndex) {
+      bestIndex = index + marker.length;
+      bestMarker = marker;
+    }
+  }
+  if (bestIndex >= 0 && bestMarker) {
+    const candidate = padded.slice(bestIndex).trim();
+    if (candidate) return candidate;
+  }
+  return text.split(/\s+/).slice(-2).join(" ");
 }
 
 function fromUciCalendar(json, feed) {

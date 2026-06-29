@@ -64,8 +64,22 @@ data class EspnEventDto(
     val name: String? = null,
     @SerializedName("shortName") val shortName: String? = null,
     val competitions: List<EspnCompetitionDto>? = null,
+    val groupings: List<EspnGroupingDto>? = null,
     val status: EspnStatusDto? = null,
     val season: EspnSeasonDto? = null,
+    val tournamentName: String? = null,
+    val eventTypeOverride: String? = null,
+)
+
+data class EspnGroupingDto(
+    val grouping: EspnGroupingInfoDto? = null,
+    val competitions: List<EspnCompetitionDto>? = null,
+)
+
+data class EspnGroupingInfoDto(
+    val id: String? = null,
+    val slug: String? = null,
+    @SerializedName("displayName") val displayName: String? = null,
 )
 
 data class EspnSeasonDto(
@@ -76,12 +90,19 @@ data class EspnSeasonDto(
 
 data class EspnCompetitionDto(
     val id: String? = null,
+    val uid: String? = null,
     val date: String? = null,
     @SerializedName("startDate") val startDate: String? = null,
     val type: EspnCompetitionTypeDto? = null,
+    val round: EspnRoundDto? = null,
     val competitors: List<EspnCompetitorDto>? = null,
     val odds: List<EspnOddsDto?>? = null,
     val status: EspnStatusDto? = null,
+)
+
+data class EspnRoundDto(
+    val id: String? = null,
+    @SerializedName("displayName") val displayName: String? = null,
 )
 
 data class EspnCompetitionTypeDto(

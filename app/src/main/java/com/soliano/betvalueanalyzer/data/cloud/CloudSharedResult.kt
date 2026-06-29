@@ -2,6 +2,7 @@ package com.soliano.betvalueanalyzer.data.cloud
 
 import com.soliano.betvalueanalyzer.data.local.PredictionEntity
 import com.soliano.betvalueanalyzer.data.local.UpcomingEventEntity
+import com.soliano.betvalueanalyzer.domain.competitionFavoriteKey
 import java.util.Locale
 import kotlin.math.abs
 
@@ -76,6 +77,7 @@ data class CloudSharedCalendarEvent(
 
 data class CloudMergeResult(
     val predictionsToUpsert: List<PredictionEntity>,
+    val eventsToUpsert: List<UpcomingEventEntity>,
     val acceptedCloudCount: Int,
     val rejectedCloudCount: Int,
 )
@@ -283,6 +285,31 @@ fun CloudSharedResult.toPredictionEntity(local: PredictionEntity? = null): Predi
     )
 }
 
+fun CloudSharedResult.toUpcomingEventEntity(analysisId: String): UpcomingEventEntity = UpcomingEventEntity(
+    id = "cloud:${cloudDocumentIdFor(eventId)}",
+    sportKey = sport,
+    sportTitle = sportTitle.ifBlank { sport },
+    competitionKey = competitionFavoriteKey(sport, competition),
+    competitionName = competition,
+    commenceTime = eventDate,
+    eventName = eventName.ifBlank {
+        listOf(homeTeam, awayTeam).filter { it.isNotBlank() }.joinToString(" — ")
+    }.ifBlank { competition },
+    participantA = homeTeam,
+    participantB = awayTeam,
+    eventType = inferredCloudEventType(),
+    sourceName = sourceName.ifBlank { "$CLOUD_SOURCE_PREFIX · $appVersion" },
+    analysisId = analysisId.ifBlank { predictionId.ifBlank { "cloud:${cloudDocumentIdFor(eventId)}" } },
+)
+
+private fun CloudSharedResult.inferredCloudEventType(): String = when {
+    homeTeam.isNotBlank() && awayTeam.isNotBlank() -> "MATCH"
+    sport == "racing" -> "GP"
+    sport == "cycling" || sport == "nascar" -> "RACE"
+    sport == "golf" || sport == "tennis" -> "TOURNAMENT"
+    else -> "EVENT"
+}
+
 fun mergeCloudResults(
     localPredictions: List<PredictionEntity>,
     cloudResults: List<CloudSharedResult>,
@@ -290,7 +317,7 @@ fun mergeCloudResults(
 ): CloudMergeResult {
     val localsByEvent = localPredictions.associateBy { it.cloudIdentityKey() }
     var rejected = 0
-    val accepted = cloudResults
+    val acceptedClouds = cloudResults
         .asSequence()
         .filter { cloud ->
             val valid = cloud.isCoherent(now)
@@ -301,12 +328,17 @@ fun mergeCloudResults(
         .distinctBy { it.cloudIdentityKey() }
         .mapNotNull { cloud ->
             val local = localsByEvent[cloud.cloudIdentityKey()]
-            if (shouldUseCloudResult(local, cloud, now)) cloud.toPredictionEntity(local) else null
+            if (shouldUseCloudResult(local, cloud, now)) cloud to cloud.toPredictionEntity(local) else null
         }
         .toList()
+    val acceptedPredictions = acceptedClouds.map { it.second }
+    val acceptedEvents = acceptedClouds.map { (cloud, prediction) ->
+        cloud.toUpcomingEventEntity(prediction.id)
+    }
     return CloudMergeResult(
-        predictionsToUpsert = accepted,
-        acceptedCloudCount = accepted.size,
+        predictionsToUpsert = acceptedPredictions,
+        eventsToUpsert = acceptedEvents,
+        acceptedCloudCount = acceptedPredictions.size,
         rejectedCloudCount = rejected,
     )
 }

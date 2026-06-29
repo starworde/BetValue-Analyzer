@@ -17,6 +17,7 @@ import com.soliano.betvalueanalyzer.data.remote.EspnCompetitorDto
 import com.soliano.betvalueanalyzer.data.remote.ExternalScheduleEvent
 import com.soliano.betvalueanalyzer.data.remote.EspnParticipantDto
 import com.soliano.betvalueanalyzer.data.remote.TheSportsDbFallbackParser
+import com.soliano.betvalueanalyzer.data.remote.VolleyballWorldFallbackParser
 import com.soliano.betvalueanalyzer.data.remote.PublicSportsApiService
 import com.soliano.betvalueanalyzer.domain.PublicEvent
 import com.soliano.betvalueanalyzer.domain.PublicPrediction
@@ -495,7 +496,12 @@ class OddsRepository(
         }
         // La seconde source est toujours fusionnée : elle garantit un calendrier minimal
         // même si le fournisseur principal répond 200 avec des données vides selon la région.
-        successful = mergeFeeds(successful + fetchBackupFeeds(today, priorities) + fetchTheSportsDbLeagueFeeds(today))
+        successful = mergeFeeds(
+            successful +
+                fetchBackupFeeds(today, priorities) +
+                fetchTheSportsDbLeagueFeeds(today) +
+                fetchVolleyballWorldFeeds(today)
+        )
         if (successful.isEmpty()) {
             if (previousCatalogEvents.isNotEmpty() || previousPredictions.isNotEmpty()) {
                 return OddsSyncResult(
@@ -1275,7 +1281,7 @@ class OddsRepository(
     ): UpcomingEventEntity? {
         if (status?.type?.completed == true) return null
         val commence = parseInstant(date ?: return null) ?: return null
-        val lookback = if (source.eventType == "MATCH") 0L else ACTIVE_EVENT_LOOKBACK_MS
+        val lookback = if (effectiveEventType(source) == "MATCH") 0L else ACTIVE_EVENT_LOOKBACK_MS
         if (commence <= now - lookback) return null
 
         val competition = competitionName(source)
@@ -1302,11 +1308,13 @@ class OddsRepository(
             eventName = displayName,
             participantA = nameA,
             participantB = nameB,
-            eventType = source.eventType,
+            eventType = effectiveEventType(source),
             sourceName = source.sourceName,
             analysisId = predictions.firstOrNull { it.eventId.startsWith(catalogId) }?.id,
         )
     }
+
+    private fun EspnEventDto.effectiveEventType(source: PublicSource): String = eventTypeOverride ?: source.eventType
 
     private suspend fun fetchEvents(source: PublicSource, dates: String, today: LocalDate): List<EspnEventDto>? {
         if (source.sport == "cycling") {
@@ -1319,11 +1327,11 @@ class OddsRepository(
             val response = runCatching { api.getScoreboardUrl(url) }.getOrNull()
             if (response != null && response.isSuccessful) {
                 preferredHost = host
-                return response.body()?.events.orEmpty()
+                return response.body()?.events.orEmpty().expandedScoreboardEvents(source)
             }
             val raw = runCatching { api.getRawUrl(url) }.getOrNull()
             if (raw != null && raw.isSuccessful) {
-                val events = raw.body()?.string()?.let(EspnFallbackParser::parse).orEmpty()
+                val events = raw.body()?.string()?.let(EspnFallbackParser::parse).orEmpty().expandedScoreboardEvents(source)
                 if (events.isNotEmpty()) {
                     preferredHost = host
                     return events
@@ -1331,6 +1339,66 @@ class OddsRepository(
             }
         }
         return null
+    }
+
+    private fun List<EspnEventDto>.expandedScoreboardEvents(source: PublicSource): List<EspnEventDto> {
+        if (source.sport != "tennis") return this
+        return flatMap { event ->
+            val tournamentName = event.name ?: event.shortName
+            val matchEvents = event.groupings.orEmpty()
+                .flatMap groupings@{ grouping ->
+                    val groupingName = grouping.grouping?.displayName.orEmpty()
+                    if (!source.isAllowedTennisGrouping(groupingName)) return@groupings emptyList()
+                    grouping.competitions.orEmpty().mapNotNull { competition ->
+                        val names = competition.competitorNames()
+                        if (names.size < 2 || names.any(::isPlaceholderTennisParticipant)) return@mapNotNull null
+                        val matchName = names.joinToString(" — ")
+                        val round = competition.round?.displayName?.takeIf { it.isNotBlank() }
+                        event.copy(
+                            id = listOf(event.id, competition.id ?: competition.uid ?: matchName).joinToString("-"),
+                            uid = competition.uid ?: event.uid,
+                            date = competition.date ?: competition.startDate ?: event.date,
+                            name = matchName,
+                            shortName = matchName,
+                            competitions = listOf(competition),
+                            status = competition.status ?: event.status,
+                            tournamentName = listOfNotNull(tournamentName, grouping.grouping?.displayName, round)
+                                .distinct()
+                                .joinToString(" · ")
+                                .ifBlank { tournamentName },
+                            eventTypeOverride = "MATCH",
+                        )
+                    }
+                }
+            matchEvents.ifEmpty {
+                listOf(event.copy(tournamentName = tournamentName, eventTypeOverride = "TOURNAMENT"))
+            }
+        }
+    }
+
+    private fun PublicSource.isAllowedTennisGrouping(groupingName: String): Boolean {
+        val normalized = groupingName.lowercase()
+        return when (league) {
+            "atp" -> "men" in normalized && "women" !in normalized
+            "wta" -> "women" in normalized
+            else -> true
+        }
+    }
+
+    private fun EspnCompetitionDto.competitorNames(): List<String> =
+        competitors.orEmpty()
+            .sortedWith(compareBy<EspnCompetitorDto> { it.order ?: Int.MAX_VALUE })
+            .mapNotNull { it.team?.displayName ?: it.athlete?.displayName }
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+
+    private fun isPlaceholderTennisParticipant(value: String): Boolean {
+        val normalized = value.trim().lowercase()
+        return normalized == "tbd" ||
+            normalized == "bye" ||
+            normalized == "qualifier" ||
+            normalized.startsWith("winner ") ||
+            normalized.startsWith("unknown")
     }
 
     private suspend fun fetchLiveBackupFeeds(today: LocalDate, priorities: SyncPriorities): List<Pair<PublicSource, List<EspnEventDto>>> {
@@ -1451,6 +1519,7 @@ class OddsRepository(
 
     private fun ExternalScheduleEvent.toEspnEventDto(prefix: String): EspnEventDto {
         val status = toEspnStatus()
+        val (resolvedHome, resolvedAway) = resolvedParticipants()
         return EspnEventDto(
             id = "$prefix-$id",
             uid = "$prefix:$id",
@@ -1465,13 +1534,13 @@ class OddsRepository(
                         EspnCompetitorDto(
                             id = homeTeamId,
                             homeAway = "home",
-                            team = EspnParticipantDto(homeTeam),
+                            team = EspnParticipantDto(resolvedHome),
                             score = homeScore?.toString(),
                         ),
                         EspnCompetitorDto(
                             id = awayTeamId,
                             homeAway = "away",
-                            team = EspnParticipantDto(awayTeam),
+                            team = EspnParticipantDto(resolvedAway),
                             score = awayScore?.toString(),
                         ),
                     ),
@@ -1481,6 +1550,41 @@ class OddsRepository(
             ),
             status = status,
         )
+    }
+
+    private fun ExternalScheduleEvent.resolvedParticipants(): Pair<String, String> {
+        if (homeTeam.isNotBlank() && awayTeam.isNotBlank()) return homeTeam to awayTeam
+        val inferred = inferParticipantsFromEventName(eventName)
+        return homeTeam.ifBlank { inferred.first } to awayTeam.ifBlank { inferred.second }
+    }
+
+    private fun inferParticipantsFromEventName(value: String): Pair<String, String> {
+        val parts = value.split(Regex("\\s+(?:vs\\.?|v)\\s+", RegexOption.IGNORE_CASE), limit = 2)
+        if (parts.size < 2) return "" to ""
+        return trimCompetitionPrefix(parts[0]) to parts[1].trim()
+    }
+
+    private fun trimCompetitionPrefix(value: String): String {
+        val markers = listOf(
+            " international ",
+            " open ",
+            " classic ",
+            " masters ",
+            " championships ",
+            " championship ",
+            " cup ",
+            " invitational ",
+            " finals ",
+        )
+        val padded = " ${value.trim()} "
+        val lower = padded.lowercase()
+        val marker = markers.mapNotNull { marker ->
+            val index = lower.lastIndexOf(marker)
+            if (index >= 0) index + marker.length to marker else null
+        }.maxByOrNull { it.first }
+        return marker?.let { padded.substring(it.first).trim() }
+            ?.takeIf { it.isNotBlank() }
+            ?: value.trim().split(Regex("\\s+")).takeLast(2).joinToString(" ")
     }
 
     private fun ExternalScheduleEvent.toEspnStatus(): EspnStatusDto {
@@ -1519,17 +1623,12 @@ class OddsRepository(
     private suspend fun fetchTheSportsDbLeagueFeeds(today: LocalDate): List<Pair<PublicSource, List<EspnEventDto>>> {
         val maxDate = today.plusDays(365)
         return THE_SPORTS_DB_LEAGUES.mapNotNull { league ->
-            delay(80)
-            val url = "https://www.thesportsdb.com/api/v1/json/123/eventsnextleague.php?id=${league.id}"
-            val response = runCatching { api.getRawUrl(url) }.getOrNull() ?: return@mapNotNull null
-            if (!response.isSuccessful) return@mapNotNull null
-            val external = response.body()?.string()
-                ?.let(TheSportsDbFallbackParser::parse)
-                .orEmpty()
+            val external = fetchTheSportsDbLeagueEvents(league, today, maxDate)
                 .filter { item ->
                     val date = parseInstant(item.timestamp)?.let { Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate() }
                     date != null && date in today..maxDate
                 }
+                .distinctBy { it.id }
             if (external.isEmpty()) return@mapNotNull null
             val source = PublicSource(
                 sport = league.sport,
@@ -1543,6 +1642,74 @@ class OddsRepository(
             )
             source to external.map { item -> item.toEspnEventDto("tsdb-${league.id}") }
         }
+    }
+
+    private suspend fun fetchVolleyballWorldFeeds(today: LocalDate): List<Pair<PublicSource, List<EspnEventDto>>> {
+        val maxDate = today.plusDays(365)
+        val from = today.format(DateTimeFormatter.ISO_DATE)
+        val to = maxDate.format(DateTimeFormatter.ISO_DATE)
+        val url = "https://en.volleyballworld.com/api/v1/volley-tournament/$from/$to/1661;1662"
+        val response = runCatching { api.getRawUrl(url) }.getOrNull() ?: return emptyList()
+        if (!response.isSuccessful) return emptyList()
+        val external = response.body()?.string()
+            ?.let(VolleyballWorldFallbackParser::parse)
+            .orEmpty()
+            .filter { item ->
+                val date = parseInstant(item.timestamp)?.let { Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate() }
+                date != null && date in today..maxDate
+            }
+            .distinctBy { it.id }
+        if (external.isEmpty()) return emptyList()
+        val source = PublicSource(
+            sport = "volleyball",
+            league = "volleyball-world-vnl",
+            title = "Volley-ball",
+            maxEvents = 180,
+            competitionName = "Volleyball Nations League",
+            eventType = "MATCH",
+            dynamicCompetition = false,
+            sourceName = "Volleyball World officiel",
+        )
+        return listOf(source to external.map { item -> item.toEspnEventDto("volleyball-world") })
+    }
+
+    private suspend fun fetchTheSportsDbLeagueEvents(
+        league: ExternalLeagueSource,
+        today: LocalDate,
+        maxDate: LocalDate,
+    ): List<ExternalScheduleEvent> {
+        val urls = buildList {
+            add("https://www.thesportsdb.com/api/v1/json/123/eventsnextleague.php?id=${league.id}")
+            if (league.sport in SPORTS_DB_SEASON_EXPANDED_SPORTS) {
+                sportsDbSeasonCandidates(today).forEach { season ->
+                    add("https://www.thesportsdb.com/api/v1/json/123/eventsseason.php?id=${league.id}&s=$season")
+                }
+            }
+        }.distinct()
+        val output = mutableListOf<ExternalScheduleEvent>()
+        for (url in urls) {
+            delay(450)
+            val response = runCatching { api.getRawUrl(url) }.getOrNull() ?: continue
+            if (!response.isSuccessful) continue
+            val events = response.body()?.string()
+                ?.let(TheSportsDbFallbackParser::parse)
+                .orEmpty()
+                .filter { item ->
+                    val date = parseInstant(item.timestamp)?.let { Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate() }
+                    date != null && date in today..maxDate
+                }
+            output += events
+        }
+        return output.distinctBy { it.id }
+    }
+
+    private fun sportsDbSeasonCandidates(today: LocalDate): List<String> {
+        val year = today.year
+        return listOf(
+            year.toString(),
+            "${year - 1}-$year",
+            "$year-${year + 1}",
+        ).distinct()
     }
 
     private fun externalSport(value: String): Pair<String, String>? = when (value.lowercase()) {
@@ -1597,7 +1764,8 @@ class OddsRepository(
     private fun externalEventType(sport: String): String = when (sport.substringBefore('/')) {
         "cycling" -> "RACE"
         "racing" -> "GP"
-        "tennis", "golf" -> "TOURNAMENT"
+        "golf" -> "TOURNAMENT"
+        "tennis" -> "MATCH"
         "mma", "boxing", "athletics", "darts", "snooker" -> "EVENT"
         else -> "MATCH"
     }
@@ -1825,7 +1993,7 @@ class OddsRepository(
     ): PublicEvent? {
         if (status?.type?.completed == true) return null
         val commence = parseInstant(date ?: return null) ?: return null
-        val lookback = if (source.eventType == "MATCH") 0L else ACTIVE_EVENT_LOOKBACK_MS
+        val lookback = if (effectiveEventType(source) == "MATCH") 0L else ACTIVE_EVENT_LOOKBACK_MS
         if (commence <= now - lookback) return null
         val eventName = displayNameForStandalone() ?: return null
         val participants = competitions.orEmpty()
@@ -2039,6 +2207,10 @@ class OddsRepository(
             if (source.sport == "cycling") {
                 return season?.slug?.takeIf { it.isNotBlank() } ?: dynamicName ?: source.competitionName
             }
+            if (source.sport == "tennis") {
+                val tournament = tournamentName?.takeIf { it.isNotBlank() } ?: dynamicName
+                return if (tournament.isNullOrBlank()) source.competitionName else "${source.competitionName} · $tournament"
+            }
             if (!dynamicName.isNullOrBlank()) {
                 return if (source.competitionName.isBlank()) dynamicName else "${source.competitionName} · $dynamicName"
             }
@@ -2175,8 +2347,8 @@ class OddsRepository(
             PublicSource("football", "nfl", "Football américain", 30, "NFL"),
             PublicSource("golf", "pga", "Golf", 30, "PGA Tour", "TOURNAMENT", true),
             PublicSource("golf", "lpga", "Golf", 30, "LPGA Tour", "TOURNAMENT", true),
-            PublicSource("tennis", "atp", "Tennis", 40, "ATP", "TOURNAMENT", true),
-            PublicSource("tennis", "wta", "Tennis", 40, "WTA", "TOURNAMENT", true),
+            PublicSource("tennis", "atp", "Tennis", 120, "ATP", "MATCH", true),
+            PublicSource("tennis", "wta", "Tennis", 120, "WTA", "MATCH", true),
             PublicSource("rugby", "all", "Rugby", 60, "Compétition rugby", dynamicCompetition = true),
             PublicSource("cycling", "uci", "Cyclisme", 120, "Calendrier UCI", "RACE", true, "UCI + TheSportsDB public"),
             PublicSource("racing", "f1", "Formule 1", 20, "", "GP", true),
@@ -2224,6 +2396,7 @@ class OddsRepository(
         val PROFILE_SPORTS = TEAM_SPORTS
         val LONG_LIVE_MONITOR_SPORTS = setOf("cycling", "racing", "nascar", "golf", "tennis", "athletics", "mma", "boxing", "darts", "snooker")
         val RESULT_BOARD_LIVE_SPORTS = setOf("cycling", "racing", "nascar", "golf", "athletics")
+        val SPORTS_DB_SEASON_EXPANDED_SPORTS = setOf("tennis", "volleyball")
 
         private val PARIS_ZONE: ZoneId = ZoneId.of("Europe/Paris")
 
@@ -2266,8 +2439,8 @@ class OddsRepository(
             ExternalLeagueSource("5614", "volleyball", "Volley-ball", "CEV Challenge Cup", "MATCH"),
             ExternalLeagueSource("5813", "field_hockey", "Hockey sur gazon", "EuroHockey Championship", "MATCH"),
             ExternalLeagueSource("5812", "field_hockey", "Hockey sur gazon", "Pan American Cup", "MATCH"),
-            ExternalLeagueSource("4464", "tennis", "Tennis", "ATP World Tour", "TOURNAMENT"),
-            ExternalLeagueSource("4517", "tennis", "Tennis", "WTA Tour", "TOURNAMENT"),
+            ExternalLeagueSource("4464", "tennis", "Tennis", "ATP World Tour", "MATCH"),
+            ExternalLeagueSource("4517", "tennis", "Tennis", "WTA Tour", "MATCH"),
             ExternalLeagueSource("4581", "tennis", "Tennis", "Laver Cup", "TOURNAMENT"),
             ExternalLeagueSource("4761", "golf", "Golf", "PGA Tour of Australasia", "TOURNAMENT"),
             ExternalLeagueSource("4758", "golf", "Golf", "European Challenge Tour", "TOURNAMENT"),
