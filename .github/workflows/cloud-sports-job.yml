@@ -2,6 +2,12 @@ name: BetValue cloud sports job
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "cloud-job/**"
+      - ".github/workflows/cloud-sports-job.yml"
   schedule:
     # UTC. Check automatique toutes les 2 heures pour garder Firebase plus frais sans service payant.
     - cron: "0 */2 * * *"
