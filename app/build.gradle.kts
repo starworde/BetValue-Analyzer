@@ -16,8 +16,8 @@ android {
         applicationId = "com.soliano.betvalueanalyzer"
         minSdk = 26
         targetSdk = 35
-        versionCode = 97
-        versionName = "4.84.0"
+        versionCode = 98
+        versionName = "4.85.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

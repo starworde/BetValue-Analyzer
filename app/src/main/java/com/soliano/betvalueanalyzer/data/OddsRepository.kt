@@ -122,6 +122,7 @@ class OddsRepository(
         val sport = target.sportKey.substringBefore('/')
         if (sport == "racing") return analyzeF1Deep(target, onProgress)
         if (sport == "cycling") return analyzeCyclingDeep(target, onProgress)
+        if (sport == "tennis") return analyzeTennisDeep(target, onProgress)
         if (sport !in TEAM_SPORTS) {
             return analyzeStandaloneDeep(target, onProgress)
         }
@@ -196,6 +197,57 @@ class OddsRepository(
         upcomingEventDao.setAnalysisId(target.id, entities.first().id)
         onProgress(1.0, "Probabilités ${target.sportTitle} recalculées et vérifiées")
         return entities.first()
+    }
+
+    private suspend fun analyzeTennisDeep(
+        target: DeepAnalysisTarget,
+        onProgress: (Double, String) -> Unit,
+    ): PredictionEntity {
+        require(target.homeTeam.isNotBlank() && target.awayTeam.isNotBlank()) {
+            "Ce match tennis n'a pas encore deux joueurs confirmés."
+        }
+        val now = System.currentTimeMillis()
+        onProgress(0.04, "Ouverture analyse tennis ATP/WTA et sources adaptées")
+        val snapshot = TennisAnalysisProvider(api).load(target, onProgress)
+        onProgress(0.78, "Recherche infos joueur : blessure, forfait, retour, fatigue et H2H")
+        val newsRequest = NewsContextRequest(
+            key = "deep:tennis:${normalizeIdentity(target.id)}",
+            homeTeam = target.homeTeam,
+            awayTeam = target.awayTeam,
+            commenceTime = target.commenceTime,
+            subjects = tennisNewsSubjects(target, snapshot.surface),
+            lookbackDays = 90,
+        )
+        val freshReport = NewsContextProvider(api).load(listOf(newsRequest))
+        val mergedContext = ContextSignalCache.merge(
+            requests = listOf(newsRequest),
+            fresh = freshReport,
+            stored = contextSignalStore.loadContextSignals(),
+            now = now,
+        )
+        contextSignalStore.saveContextSignals(mergedContext.persisted)
+        val report = mergedContext.reports[newsRequest.key] ?: NewsContextReport()
+        onProgress(0.90, "Projection tennis : ranking, surface, forme et H2H")
+        val basePrediction = snapshot.toPredictionEntity(System.currentTimeMillis())
+        val contextLines = report.signals.map { signal -> contextLine(signal) }
+            .ifEmpty {
+                listOf(
+                    "${snapshot.playerA.name} : Aucun fait relevé",
+                    "${snapshot.playerB.name} : Aucun fait relevé",
+                )
+            }
+        val sourceLines = (basePrediction.sourceDetails.lines() + report.checkedSources)
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+        val prediction = basePrediction.copy(
+            contextInsights = contextLines.joinToString("\n"),
+            sourceDetails = sourceLines.joinToString("\n"),
+        )
+        predictionDao.upsertAll(listOf(prediction))
+        upcomingEventDao.setAnalysisId(target.id, prediction.id)
+        onProgress(1.0, "Analyse tennis consolidée")
+        return prediction
     }
 
     private suspend fun analyzeStandaloneDeep(
@@ -378,6 +430,22 @@ class OddsRepository(
         NewsSubject("$raceName interview directeur sportif coureur avant course", raceName, raceName, "CYCLING_INTERVIEW"),
         NewsSubject("$raceName compte officiel Instagram Facebook X Twitter", raceName, raceName, "SOCIAL_CYCLING"),
     ).distinctBy { it.query }
+
+    private fun tennisNewsSubjects(target: DeepAnalysisTarget, surface: String): List<NewsSubject> {
+        val match = "${target.homeTeam} ${target.awayTeam}"
+        val competition = target.competitionName.ifBlank { "tennis" }
+        return listOf(
+            NewsSubject("${target.homeTeam} tennis blessure forfait retour fatigue dernier match", target.homeTeam, target.homeTeam, "PLAYER_HEALTH"),
+            NewsSubject("${target.awayTeam} tennis blessure forfait retour fatigue dernier match", target.awayTeam, target.awayTeam, "PLAYER_HEALTH"),
+            NewsSubject("${target.homeTeam} ATP WTA ITF profile ranking service return aces double faults", target.homeTeam, target.homeTeam, "PLAYER_STATS"),
+            NewsSubject("${target.awayTeam} ATP WTA ITF profile ranking service return aces double faults", target.awayTeam, target.awayTeam, "PLAYER_STATS"),
+            NewsSubject("${target.homeTeam} Tennis Abstract Ultimate Tennis Statistics Tennis Explorer form surface", target.homeTeam, target.homeTeam, "PLAYER_STATS_PUBLIC"),
+            NewsSubject("${target.awayTeam} Tennis Abstract Ultimate Tennis Statistics Tennis Explorer form surface", target.awayTeam, target.awayTeam, "PLAYER_STATS_PUBLIC"),
+            NewsSubject("$match head to head tennis H2H $surface", null, match, "H2H"),
+            NewsSubject("$match $competition tennis preview surface forme", null, match, "MATCH_PREVIEW"),
+            NewsSubject("$competition order of play $match", null, competition, "ORDER_OF_PLAY"),
+        ).distinctBy { it.query }
+    }
 
     private fun standaloneNewsSubjects(
         sport: String,
