@@ -75,6 +75,11 @@ fun matchesSearch(haystack: String, query: String): Boolean {
     return normalizeForSearch(haystack).contains(needle)
 }
 
+fun normalizedSearchText(value: String): String = normalizeForSearch(value)
+
+fun matchesNormalizedSearch(normalizedHaystack: String, normalizedNeedle: String): Boolean =
+    normalizedNeedle.isBlank() || normalizedHaystack.contains(normalizedNeedle)
+
 private fun translateNationalTeamsInText(value: String): String {
     var result = value.replace(Regex("\\s+vs\\.?\\s+", RegexOption.IGNORE_CASE), " — ")
     replacementNames.forEach { (source, translated) ->

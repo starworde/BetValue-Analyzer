@@ -61,7 +61,8 @@ import com.soliano.betvalueanalyzer.ui.components.cleanDisplayText
 import com.soliano.betvalueanalyzer.ui.components.displayEventTitle
 import com.soliano.betvalueanalyzer.ui.components.displayTeamName
 import com.soliano.betvalueanalyzer.ui.components.formatDate
-import com.soliano.betvalueanalyzer.ui.components.matchesSearch
+import com.soliano.betvalueanalyzer.ui.components.matchesNormalizedSearch
+import com.soliano.betvalueanalyzer.ui.components.normalizedSearchText
 import com.soliano.betvalueanalyzer.ui.components.searchableText
 import com.soliano.betvalueanalyzer.ui.theme.Amber
 import com.soliano.betvalueanalyzer.ui.theme.Blue
@@ -74,6 +75,7 @@ import com.soliano.betvalueanalyzer.ui.theme.Violet
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.delay
 
 @Composable
 fun SportsScreen(
@@ -114,7 +116,18 @@ fun SportsScreen(
     var selectedSport by remember { mutableStateOf<String?>(null) }
     var selectedCompetition by remember { mutableStateOf<String?>(null) }
     var searchQuery by remember { mutableStateOf("") }
-    val searchActive = searchQuery.trim().isNotBlank()
+    var appliedSearchQuery by remember { mutableStateOf("") }
+    LaunchedEffect(searchQuery) {
+        delay(220)
+        appliedSearchQuery = searchQuery.trim()
+    }
+    val normalizedQuery = remember(appliedSearchQuery) { normalizedSearchText(appliedSearchQuery) }
+    val searchActive = normalizedQuery.isNotBlank()
+    val eventSearchIndex = remember(state.upcomingEvents) {
+        state.upcomingEvents.map { event ->
+            SearchableEvent(event, normalizedSearchText(searchableText(event)))
+        }
+    }
 
     LaunchedEffect(sports, state.settings.favoriteSports, eventCountBySport) {
         val selectedStillExists = selectedSport in sports.map { it.key }
@@ -153,24 +166,49 @@ fun SportsScreen(
                     .thenBy { cleanDisplayText(it.name) }
             )
     }
-    val matchingCompetitions = remember(searchActive, allCompetitions, sports, searchQuery, competitions) {
+    val competitionSearchIndex = remember(allCompetitions, sports) {
+        val sportNames = sports.associate { it.key to it.name }
+        allCompetitions.map { competition ->
+            val sportName = sportNames[competition.sportKey].orEmpty()
+            SearchableCompetition(
+                competition = competition,
+                searchText = normalizedSearchText(searchableText(listOf(sportName, competition.name))),
+            )
+        }
+    }
+    val matchingCompetitions = remember(searchActive, competitionSearchIndex, normalizedQuery, competitions) {
         if (searchActive) {
-            allCompetitions.filter { competition ->
-                val sportName = sports.firstOrNull { it.key == competition.sportKey }?.name.orEmpty()
-                matchesSearch(searchableText(listOf(sportName, competition.name)), searchQuery)
-            }.sortedBy { it.name }.take(18)
+            competitionSearchIndex
+                .asSequence()
+                .filter { matchesNormalizedSearch(it.searchText, normalizedQuery) }
+                .map { it.competition }
+                .sortedBy { it.name }
+                .take(18)
+                .toList()
         } else {
             competitions
         }
     }
-    val visibleEvents = remember(state.upcomingEvents, searchActive, searchQuery, selectedSport, selectedCompetition) {
-        state.upcomingEvents.filter { event ->
-            if (searchActive) {
-                matchesSearch(searchableText(event), searchQuery)
-            } else {
-                event.sportKey == selectedSport && (selectedCompetition == null || event.competitionKey == selectedCompetition)
-            }
-        }.sortedBy { it.commenceTime }
+    val visibleEvents = remember(eventSearchIndex, searchActive, normalizedQuery, selectedSport, selectedCompetition) {
+        val events = if (searchActive) {
+            eventSearchIndex
+                .asSequence()
+                .filter { matchesNormalizedSearch(it.searchText, normalizedQuery) }
+                .map { it.event }
+                .sortedBy { it.commenceTime }
+                .take(MAX_SPORT_SEARCH_RESULTS)
+                .toList()
+        } else {
+            eventSearchIndex
+                .asSequence()
+                .map { it.event }
+                .filter { event ->
+                    event.sportKey == selectedSport && (selectedCompetition == null || event.competitionKey == selectedCompetition)
+                }
+                .sortedBy { it.commenceTime }
+                .toList()
+        }
+        events
     }
     val analysesById = remember(state.predictions) { state.predictions.associateBy { it.id } }
     val syncing = state.syncStatus == SyncStatus.Syncing
@@ -329,6 +367,18 @@ fun SportsScreen(
         }
     }
 }
+
+private const val MAX_SPORT_SEARCH_RESULTS = 160
+
+private data class SearchableEvent(
+    val event: UpcomingEventEntity,
+    val searchText: String,
+)
+
+private data class SearchableCompetition(
+    val competition: CatalogCompetition,
+    val searchText: String,
+)
 
 @Composable
 private fun HeaderMetric(value: String, label: String, color: Color, modifier: Modifier = Modifier) {
