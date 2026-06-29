@@ -109,18 +109,41 @@ fun PredictionDetailScreen(
             dossier = withContext(Dispatchers.Default) { StructuredAnalysisCache.getOrBuild(prediction) }
         }
     }
-    val participantDigests = remember(dossier) { dossier?.let { participantBilanDigests(it).take(2) }.orEmpty() }
-    val actorDigests = remember(dossier) { dossier?.let { actorBilanDigests(it).take(6) }.orEmpty() }
-    val pressDigests = remember(dossier) { dossier?.let { pressInfoDigests(it).take(5) }.orEmpty() }
+    val tennisMode = remember(prediction.sportKey, prediction.sportTitle) { isTennisPrediction(prediction) }
+    val participantDigests = remember(prediction, dossier, tennisMode) {
+        if (tennisMode) tennisParticipantBilanDigests(prediction)
+        else dossier?.let { participantBilanDigests(it).take(2) }.orEmpty()
+    }
+    val actorDigests = remember(prediction, dossier, tennisMode) {
+        if (tennisMode) tennisActorBilanDigests(prediction, dossier)
+        else dossier?.let { actorBilanDigests(it).take(6) }.orEmpty()
+    }
+    val pressDigests = remember(prediction, dossier, tennisMode) {
+        if (tennisMode) tennisPressInfoDigests(prediction)
+        else dossier?.let { pressInfoDigests(it).take(5) }.orEmpty()
+    }
     val lineupTeams = remember(
         prediction.homeLineupStatus,
         prediction.homeLineup,
         prediction.awayLineupStatus,
         prediction.awayLineup,
     ) { lineupDisplayTeams(prediction) }
-    val globalNotes = remember(dossier) { dossier?.let { matchImpactNotes(it, max = 3) }.orEmpty() }
+    val globalNotes = remember(dossier, tennisMode) {
+        if (tennisMode) emptyList()
+        else dossier?.let { matchImpactNotes(it, max = 3) }.orEmpty()
+    }
     val otherScenarios = remember(prediction.selection, dossier) { dossier?.let { otherProbabilityLines(prediction, it) }.orEmpty() }
     val scenarioNotes = remember(prediction.selection, dossier) { dossier?.let { probabilityCommentLines(prediction, it) }.orEmpty() }
+    val participantSectionTitle = if (tennisMode) {
+        t(language, "Bilan des deux joueurs", "Two-player summary", "Resumen de los dos jugadores", "Bilanz beider Spieler")
+    } else {
+        t(language, "Bilan équipes / participants", "Teams / participants summary", "Resumen equipos / participantes", "Teams / Teilnehmer-Bilanz")
+    }
+    val pressSectionTitle = if (tennisMode) {
+        t(language, "Infos joueurs récentes", "Recent player info", "Noticias recientes de jugadores", "Aktuelle Spielerinfos")
+    } else {
+        t(language, "Presse / infos récentes", "Press / recent news", "Prensa / noticias recientes", "Presse / aktuelle Infos")
+    }
 
     LazyColumn(
         modifier = Modifier.padding(contentPadding).statusBarsPadding(),
@@ -156,8 +179,8 @@ fun PredictionDetailScreen(
         }
 
         item {
-            PredictionSection(t(language, "Bilan équipes / participants", "Teams / participants summary", "Resumen equipos / participantes", "Teams / Teilnehmer-Bilanz"), Icons.Outlined.Groups, Blue) {
-                if (dossier == null) {
+            PredictionSection(participantSectionTitle, Icons.Outlined.Groups, Blue) {
+                if (!tennisMode && dossier == null) {
                     Text(t(language, "Préparation du bilan…", "Preparing summary…", "Preparando resumen…", "Bilanz wird vorbereitet…"), color = TextSecondary)
                 } else if (participantDigests.isEmpty()) {
                     Text(t(language, "Bilan indisponible sur les données actuelles.", "Summary unavailable with current data.", "Resumen no disponible con los datos actuales.", "Bilanz mit aktuellen Daten nicht verfügbar."), color = TextSecondary)
@@ -172,8 +195,8 @@ fun PredictionDetailScreen(
         }
 
         item {
-            PredictionSection(t(language, "Presse / infos récentes", "Press / recent news", "Prensa / noticias recientes", "Presse / aktuelle Infos"), Icons.Outlined.Newspaper, Amber) {
-                if (dossier == null) {
+            PredictionSection(pressSectionTitle, Icons.Outlined.Newspaper, Amber) {
+                if (!tennisMode && dossier == null) {
                     Text(t(language, "Recherche blessures, suspensions, retours, coach, météo et fatigue récente…", "Searching injuries, suspensions, returns, coach, weather and recent fatigue…", "Buscando lesiones, sanciones, regresos, entrenador, clima y fatiga reciente…", "Suche Verletzungen, Sperren, Rückkehrer, Trainer, Wetter und Müdigkeit…"), color = TextSecondary)
                 } else if (pressDigests.isEmpty()) {
                     Text(t(language, NO_RECENT_FACT_LINE, "No fact found", "Ningún hecho detectado", "Keine Tatsache gefunden"), color = TextSecondary)
@@ -194,7 +217,7 @@ fun PredictionDetailScreen(
 
         item {
             PredictionSection(t(language, "Joueurs clés", "Key players", "Jugadores clave", "Schlüsselspieler"), Icons.Outlined.Groups, Violet) {
-                if (dossier == null) {
+                if (!tennisMode && dossier == null) {
                     Text(t(language, "Recherche approfondie++ des stats joueurs, absences, retours, suspensions et fatigue récente…", "Deep search for player stats, absences, returns, suspensions and recent fatigue…", "Búsqueda profunda de stats de jugadores, ausencias, regresos, sanciones y fatiga reciente…", "Tiefsuche nach Spieler-Stats, Ausfällen, Rückkehrern, Sperren und Müdigkeit…"), color = TextSecondary)
                 } else if (actorDigests.isEmpty()) {
                     Text(t(language, "Pas d’info joueur fiable trouvée pour ce match.", "No reliable player info found for this match.", "No hay info fiable de jugadores para este partido.", "Keine zuverlässigen Spielerinfos für dieses Spiel gefunden."), color = TextSecondary)
@@ -310,6 +333,143 @@ private fun lineupDisplayTeams(prediction: PredictionEntity): List<LineupTeamVie
 private fun lineupFormation(status: String): String? =
     Regex("""\b\d(?:-\d){1,4}\b""").find(cleanDisplayText(status))?.value
 
+private fun isTennisPrediction(prediction: PredictionEntity): Boolean =
+    prediction.sportKey.substringBefore('/').equals("tennis", ignoreCase = true) ||
+        prediction.sportTitle.contains("tennis", ignoreCase = true)
+
+private fun tennisPlayerNames(prediction: PredictionEntity): List<String> = listOf(
+    prediction.homeTeam,
+    prediction.awayTeam,
+).map(::cleanDisplayText)
+    .filter { it.isNotBlank() }
+    .distinctBy { it.canonicalNameKey() }
+    .take(2)
+
+private fun tennisParticipantBilanDigests(prediction: PredictionEntity): List<ParticipantDigest> =
+    tennisPlayerNames(prediction).map { player ->
+        val lines = tennisStatLinesForPlayer(prediction, player, includeProbabilityNotes = false)
+            .ifEmpty { listOf("Aucune statistique joueur trouvée dans les sources actuelles.") }
+        ParticipantDigest(
+            name = player,
+            lines = compactUiLines(lines, max = 6),
+            missingStats = emptyList(),
+        )
+    }
+
+private fun tennisActorBilanDigests(
+    prediction: PredictionEntity,
+    dossier: StructuredAnalysisDossier?,
+): List<ActorDigest> =
+    tennisPlayerNames(prediction).map { player ->
+        val probabilities = dossier?.playerProbabilities.orEmpty()
+            .filter { probability -> probability.mentionsPlayer(player) }
+            .filter(::isActionableProbabilityLine)
+            .distinctBy { cleanDisplayText(it.type).canonicalNameKey() + "|" + cleanDisplayText(it.label).canonicalNameKey() }
+            .take(3)
+        val lines = tennisStatLinesForPlayer(prediction, player, includeProbabilityNotes = false)
+            .ifEmpty { listOf("Aucune statistique joueur trouvée dans les sources actuelles.") }
+        ActorDigest(
+            name = player,
+            role = "Joueur tennis",
+            lines = compactUiLines(lines, max = 5),
+            probabilities = probabilities,
+        )
+    }
+
+private fun tennisPressInfoDigests(prediction: PredictionEntity): List<PressInfoDigest> =
+    tennisPlayerNames(prediction).map { player ->
+        val facts = prediction.contextInsights.lines()
+            .map(::cleanDisplayText)
+            .mapNotNull { line -> tennisScopedLine(player, line) }
+            .filterNot { isNoRecentFactLine(it) }
+            .filter(::isRealTennisPressFact)
+            .let { compactUiLines(it, max = 4) }
+        PressInfoDigest(
+            title = player,
+            level = facts.firstOrNull()?.let { "Info joueur" }.orEmpty(),
+            lines = facts.ifEmpty { listOf(NO_RECENT_FACT_LINE) },
+        )
+    }
+
+private fun tennisStatLinesForPlayer(
+    prediction: PredictionEntity,
+    player: String,
+    includeProbabilityNotes: Boolean,
+): List<String> {
+    val statLines = prediction.statSummary.lines()
+        .map(::cleanDisplayText)
+        .mapNotNull { line -> tennisScopedLine(player, line) }
+        .filterNot(::isTennisMatchLevelLine)
+    val probabilityLines = if (!includeProbabilityNotes) {
+        emptyList()
+    } else {
+        prediction.playerScenarios.lines()
+            .mapNotNull { it.toProbabilityLineOrNull() }
+            .filter { it.mentionsPlayer(player) }
+            .map { "${cleanDisplayText(it.type)} : ${stripDigestPrefix(player, it.label)} (${formatPercent(it.probability)})" }
+    }
+    return (statLines + probabilityLines)
+        .filterNot(::isNoRecentFactLine)
+        .distinctBy { it.canonicalNameKey() }
+}
+
+private fun tennisScopedLine(player: String, line: String): String? {
+    val cleaned = cleanDisplayText(line).trim()
+    val prefix = cleaned.substringBefore(':', missingDelimiterValue = "")
+    if (prefix.isBlank()) return null
+    if (prefix.canonicalNameKey() != player.canonicalNameKey()) return null
+    return cleaned.substringAfter(':').trim(' ', '·', '-', ':').takeIf { it.isNotBlank() }
+}
+
+private fun isTennisMatchLevelLine(value: String): Boolean {
+    val key = value.canonicalNameKey()
+    return " vs " in value.lowercase(Locale.FRANCE) ||
+        "face a face" in key ||
+        key.startsWith("h2h ") ||
+        "aucun face a face" in key ||
+        "dernier h2h" in key
+}
+
+private fun isRealTennisPressFact(value: String): Boolean {
+    val key = value.canonicalNameKey()
+    if (key.isBlank()) return false
+    if (isTennisMetricInfoText(key)) return false
+    if (listOf("classement", "forme recente", "bilan 365j", "service 365j", "surface", "h2h").any { it in key }) return false
+    return listOf(
+        "bless",
+        "forfait",
+        "withdraw",
+        "abandon",
+        "retour de blessure",
+        "retour competition",
+        "retour entrainement",
+        "suspend",
+        "absence",
+        "absent",
+        "malade",
+        "fatigue",
+        "douleur",
+        "poignet",
+        "genou",
+        "epaule",
+        "dos",
+        "cheville",
+    ).any { it in key }
+}
+
+private fun StructuredProbabilityLine.mentionsPlayer(player: String): Boolean =
+    cleanDisplayText("$type $label").canonicalNameKey().contains(player.canonicalNameKey())
+
+private fun String.toProbabilityLineOrNull(): StructuredProbabilityLine? {
+    val parts = split('|')
+    if (parts.size < 3) return null
+    return StructuredProbabilityLine(
+        type = cleanDisplayText(parts[0]),
+        label = cleanDisplayText(parts[1]),
+        probability = parts[2].replace(',', '.').toDoubleOrNull()?.coerceIn(0.0, 1.0) ?: return null,
+    )
+}
+
 private fun participantBilanDigests(dossier: StructuredAnalysisDossier): List<ParticipantDigest> {
     val names = buildList {
         addAll(dossier.participantBlocks.map { it.name })
@@ -396,8 +556,10 @@ private fun pressInfoDigests(dossier: StructuredAnalysisDossier): List<PressInfo
             lines = lines,
         )
     }
+    val participantKeys = participantNames.map { it.canonicalNameKey() }.toSet()
     val actorInfo = dossier.actorBlocks.mapNotNull { block ->
         if (isNonParticipantPressScope(block.name)) return@mapNotNull null
+        if (block.name.canonicalNameKey() in participantKeys) return@mapNotNull null
         val infoLines = block.importantInfo
             .filter(::isPressInfoLine)
             .map { pressInfoLine(block.name, it) }
@@ -422,6 +584,7 @@ private fun isPressInfoLine(line: StructuredReliabilityLine): Boolean {
     val text = raw.canonicalNameKey()
     if (text.isBlank()) return false
     if (isNoRecentFactLine(text) || isGenericPressChecklistLine(text)) return false
+    if (isTennisMetricInfoText(text)) return false
     if (listOf(
             "source principale",
             "fiabilite des donnees",
@@ -457,6 +620,23 @@ private fun isPressInfoLine(line: StructuredReliabilityLine): Boolean {
         "entrainement",
     ).any { it in text }
 }
+
+private fun isTennisMetricInfoText(text: String): Boolean =
+    listOf(
+        "service 365j",
+        "retour pression 365j",
+        "retour 365j",
+        "break points",
+        "balles de break",
+        "aces match",
+        "aces par match",
+        "doubles fautes",
+        "jeux de service",
+        "pts gagnes",
+        "1res balles",
+        "match moyen",
+        "bilan 365j",
+    ).any { it in text }
 
 private fun pressInfoLine(scope: String, line: StructuredReliabilityLine): String {
     val body = stripDigestPrefix(scope, line.text)
