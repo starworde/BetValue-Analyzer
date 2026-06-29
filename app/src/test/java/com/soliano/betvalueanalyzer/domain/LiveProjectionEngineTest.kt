@@ -92,7 +92,10 @@ class LiveProjectionEngineTest {
         assertTrue(text.contains("touche") || text.contains("touches"))
         assertTrue(text.contains("mêlée") || text.contains("mêlées"))
         assertTrue(text.contains("synthèse live") || text.contains("synthese live"))
-        assertTrue(text.contains("à surveiller") || text.contains("a surveiller"))
+        assertTrue(text.contains("angles live"))
+        assertTrue(text.contains("données live utiles") || text.contains("donnees live utiles"))
+        assertTrue(!text.contains("à surveiller"))
+        assertTrue(!text.contains("à recouper"))
         assertTrue(text.contains("transformations"))
     }
 

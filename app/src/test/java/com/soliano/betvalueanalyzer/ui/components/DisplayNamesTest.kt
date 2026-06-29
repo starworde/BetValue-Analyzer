@@ -37,4 +37,11 @@ class DisplayNamesTest {
         assertEquals("Cœur du jeu", cleanDisplayText("Cœur du jeu"))
         assertEquals("Œuvre collective", cleanDisplayText("Œuvre collective"))
     }
+
+    @Test
+    fun `weak data categories display as clear low data status`() {
+        assertEquals("Données faibles", predictionCategoryLabel("Données à compléter"))
+        assertEquals("exotique", predictionCategoryKey("Données à compléter"))
+        assertEquals("Données faibles", predictionCategoryLabel("Données insuffisantes"))
+    }
 }

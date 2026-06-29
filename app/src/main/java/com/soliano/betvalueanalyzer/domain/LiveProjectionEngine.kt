@@ -77,24 +77,24 @@ object LiveProjectionEngine {
             val liveValue = if (profile.versusActions) event.scoreText() else event.raceResultText()
             add("$liveHeader : $liveValue · ${event.statusDescription.ifBlank { "statut en cours" }} ${event.displayClock.takeIf { it.isNotBlank() }?.let { "· $it" }.orEmpty()}")
             add("Synthèse live : score/classement, stats clés et scénarios recalculés selon le sport.")
-            add("À surveiller ${profile.displayName} : ${livePdfMarkets(sport)}.")
+            add("Angles live ${profile.displayName} : ${livePdfMarkets(sport)}.")
             add("Stats clés ${profile.displayName} : ${profile.keyStats}.")
             if (profile.versusActions) {
                 if (scoreKnown) {
                     add("Score réel confirmé : ${event.scoreText()} · utilisé comme base du recalcul live.")
                 } else {
-                    add("Score réel : attente d'un flux public confirmé ; les probabilités restent prudentes.")
+                    add("Score réel : non publié dans les flux publics ; l'affichage reste limité à l'état live.")
                 }
                 add("Projection live : total estimé autour de ${decimal(projectedTotal)} ${profile.unit}, marge actuelle ${abs(scoreDiff)} ${profile.marginUnit}.")
             } else {
                 if (event.resultSummary.isNotBlank()) {
                     add("Top 3 / classement public : ${event.resultSummary}.")
                 } else {
-                    add("Top 3 / classement : attente du classement officiel public ; aucun faux score n'est affiché.")
+                    add("Top 3 / classement : non publié dans les flux publics ; aucun faux score n'est affiché.")
                 }
-                add("Projection live : classement/podium à recalculer avec les infos officielles, écarts, météo/incidents et rôles.")
+                add("Lecture live : classement/podium basé sur les infos officielles, écarts, météo/incidents et rôles.")
             }
-            add("À recouper pendant le live : ${profile.contextStats}.")
+            add("Données live utiles : ${profile.contextStats}.")
             venue?.let { add(it.summary) }
             addAll(intelligence.summaryLines)
         }
@@ -244,7 +244,7 @@ object LiveProjectionEngine {
             "recalculer",
             "recouper",
             "surveiller",
-            "avant pari",
+            "avant projection",
             "seulement si",
             "fiabilité live",
             "fiabilite live",

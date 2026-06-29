@@ -45,6 +45,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import com.soliano.betvalueanalyzer.data.local.LiveEventEntity
 import com.soliano.betvalueanalyzer.data.local.PredictionEntity
 import com.soliano.betvalueanalyzer.data.local.UpcomingEventEntity
 import com.soliano.betvalueanalyzer.ui.AppUiState
@@ -64,6 +65,9 @@ import com.soliano.betvalueanalyzer.ui.theme.SurfaceHigh
 import com.soliano.betvalueanalyzer.ui.theme.TextSecondary
 import com.soliano.betvalueanalyzer.ui.theme.Violet
 import kotlinx.coroutines.launch
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 
 private enum class AutomaticFilter(val label: String) {
     All("Tous"), Safe("Safe"), Mixed("Mitigé"), Exotic("Exotique")
@@ -98,6 +102,19 @@ fun HomeScreen(
     val syncing = state.syncStatus == SyncStatus.Syncing
     val staleData = state.settings.lastSyncEpoch > 0L &&
         System.currentTimeMillis() - state.settings.lastSyncEpoch > 2 * 60 * 60 * 1000L
+    val now = System.currentTimeMillis()
+    val today = LocalDate.now()
+    val tomorrow = today.plusDays(1)
+    val liveNow = state.liveEvents.filter { it.isLive }.take(8)
+    val todayEvents = state.upcomingEvents
+        .filter { it.commenceTime >= now && eventLocalDate(it.commenceTime) == today }
+        .take(10)
+    val tomorrowEvents = state.upcomingEvents
+        .filter { eventLocalDate(it.commenceTime) == tomorrow }
+        .take(10)
+    val watchEvents = state.upcomingEvents
+        .filter { it.commenceTime >= now && it.analysisId == null }
+        .take(10)
     val favoriteCompetitionEvents = state.favoriteCompetitionUpcomingEvents
     val favoriteSportEvents = state.favoriteSportUpcomingEvents
     val showFavoriteHub = state.hasConfiguredFavorites || favoriteCompetitionEvents.isNotEmpty() || favoriteSportEvents.isNotEmpty()
@@ -170,6 +187,40 @@ fun HomeScreen(
             }
         }
 
+        if (liveNow.isNotEmpty()) {
+            item {
+                HomeLiveRail(
+                    title = t(language, "En direct", "Live now", "En vivo", "Live"),
+                    subtitle = t(language, "Scores ou classements déjà confirmés par les flux publics", "Scores or standings already confirmed by public feeds", "Marcadores o clasificaciones confirmados por fuentes públicas", "Scores oder Stände aus öffentlichen Feeds"),
+                    events = liveNow,
+                )
+            }
+        }
+
+        if (todayEvents.isNotEmpty()) {
+            item {
+                HomeEventRail(
+                    title = t(language, "Aujourd’hui", "Today", "Hoy", "Heute"),
+                    subtitle = t(language, "Les prochains matchs, courses et tournois du jour", "Upcoming matches, races and tournaments today", "Partidos, carreras y torneos de hoy", "Heutige Spiele, Rennen und Turniere"),
+                    events = todayEvents,
+                    accent = Mint,
+                    onOpenEvent = onOpenEvent,
+                )
+            }
+        }
+
+        if (tomorrowEvents.isNotEmpty()) {
+            item {
+                HomeEventRail(
+                    title = t(language, "Demain", "Tomorrow", "Mañana", "Morgen"),
+                    subtitle = t(language, "À préparer sans attendre le jour J", "Prepare before match day", "Preparar antes del día del evento", "Vor dem Ereignistag vorbereiten"),
+                    events = tomorrowEvents,
+                    accent = Blue,
+                    onOpenEvent = onOpenEvent,
+                )
+            }
+        }
+
         if (showFavoriteHub) {
             item {
                 FavoriteHomeHub(
@@ -183,6 +234,19 @@ fun HomeScreen(
                 )
             }
         }
+
+        if (watchEvents.isNotEmpty()) {
+            item {
+                HomeEventRail(
+                    title = t(language, "À surveiller", "To monitor", "A vigilar", "Beobachten"),
+                    subtitle = t(language, "Événements détectés mais pas encore assez solides pour une analyse complète", "Events detected but not solid enough for a full analysis yet", "Eventos detectados aún sin datos suficientes", "Erkannt, aber noch nicht robust genug"),
+                    events = watchEvents,
+                    accent = Amber,
+                    onOpenEvent = onOpenEvent,
+                )
+            }
+        }
+
 
         if (staleData && state.predictions.isNotEmpty()) {
             item {
@@ -240,6 +304,82 @@ fun HomeScreen(
             items(visible, key = { it.id }) { prediction ->
                 PredictionCard(prediction = prediction, onClick = { onOpen(prediction) })
             }
+        }
+    }
+}
+
+private val homeDateZone: ZoneId = ZoneId.systemDefault()
+
+private fun eventLocalDate(value: Long): LocalDate =
+    Instant.ofEpochMilli(value).atZone(homeDateZone).toLocalDate()
+
+@Composable
+private fun HomeEventRail(
+    title: String,
+    subtitle: String,
+    events: List<UpcomingEventEntity>,
+    accent: Color,
+    onOpenEvent: (UpcomingEventEntity) -> Unit,
+) {
+    Surface(shape = RoundedCornerShape(22.dp), color = MaterialTheme.colorScheme.surface) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
+            SectionTitle(title, subtitle)
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                items(events, key = { it.id }) { event ->
+                    HomeAgendaCard(event = event, accent = accent, onClick = { onOpenEvent(event) })
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeAgendaCard(event: UpcomingEventEntity, accent: Color, onClick: () -> Unit) {
+    Surface(
+        modifier = Modifier.width(250.dp).clickable(onClick = onClick),
+        shape = RoundedCornerShape(18.dp),
+        color = SurfaceHigh.copy(alpha = 0.82f),
+        border = BorderStroke(1.dp, accent.copy(alpha = 0.28f)),
+    ) {
+        Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Text(cleanDisplayText(event.sportTitle), style = MaterialTheme.typography.labelLarge, color = accent)
+            Text(cleanDisplayText(event.competitionName), style = MaterialTheme.typography.labelMedium, color = TextSecondary, maxLines = 1)
+            Text(cleanDisplayText(displayEventTitle(event)), style = MaterialTheme.typography.titleMedium, maxLines = 2)
+            Text(formatDate(event.commenceTime), style = MaterialTheme.typography.labelMedium, color = Amber)
+            Text("Source : ${cleanDisplayText(event.sourceName)}", style = MaterialTheme.typography.labelSmall, color = TextSecondary, maxLines = 1)
+        }
+    }
+}
+
+@Composable
+private fun HomeLiveRail(title: String, subtitle: String, events: List<LiveEventEntity>) {
+    Surface(shape = RoundedCornerShape(22.dp), color = MaterialTheme.colorScheme.surface) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
+            SectionTitle(title, subtitle)
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                items(events, key = { it.id }) { event ->
+                    HomeLiveCard(event)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeLiveCard(event: LiveEventEntity) {
+    Surface(
+        modifier = Modifier.width(250.dp),
+        shape = RoundedCornerShape(18.dp),
+        color = Mint.copy(alpha = 0.11f),
+        border = BorderStroke(1.dp, Mint.copy(alpha = 0.30f)),
+    ) {
+        Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Text(cleanDisplayText(event.sportTitle), style = MaterialTheme.typography.labelLarge, color = Mint)
+            Text(cleanDisplayText(event.competitionName), style = MaterialTheme.typography.labelMedium, color = TextSecondary, maxLines = 1)
+            Text(cleanDisplayText(event.eventName), style = MaterialTheme.typography.titleMedium, maxLines = 2)
+            val score = if (event.homeScore != null && event.awayScore != null) "${event.homeScore} - ${event.awayScore}" else event.statSummary.lines().firstOrNull { "Top 3" in it }.orEmpty()
+            Text(cleanDisplayText(score.ifBlank { event.statusDescription }), style = MaterialTheme.typography.bodyMedium, color = Mint, maxLines = 2)
+            Text(cleanDisplayText(event.displayClock.ifBlank { event.statusDescription }), style = MaterialTheme.typography.labelSmall, color = TextSecondary, maxLines = 1)
         }
     }
 }

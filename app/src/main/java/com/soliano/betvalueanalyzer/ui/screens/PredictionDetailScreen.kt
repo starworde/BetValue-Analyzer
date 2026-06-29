@@ -139,6 +139,11 @@ fun PredictionDetailScreen(
     } else {
         t(language, "Bilan équipes / participants", "Teams / participants summary", "Resumen equipos / participantes", "Teams / Teilnehmer-Bilanz")
     }
+    val actorSectionTitle = if (tennisMode) {
+        t(language, "Pronostics joueurs", "Player predictions", "Pronósticos de jugadores", "Spielerprognosen")
+    } else {
+        t(language, "Joueurs clés", "Key players", "Jugadores clave", "Schlüsselspieler")
+    }
     val pressSectionTitle = if (tennisMode) {
         t(language, "Infos joueurs récentes", "Recent player info", "Noticias recientes de jugadores", "Aktuelle Spielerinfos")
     } else {
@@ -215,8 +220,9 @@ fun PredictionDetailScreen(
             }
         }
 
+        if (!tennisMode || actorDigests.isNotEmpty()) {
         item {
-            PredictionSection(t(language, "Joueurs clés", "Key players", "Jugadores clave", "Schlüsselspieler"), Icons.Outlined.Groups, Violet) {
+            PredictionSection(actorSectionTitle, Icons.Outlined.Groups, Violet) {
                 if (!tennisMode && dossier == null) {
                     Text(t(language, "Recherche approfondie++ des stats joueurs, absences, retours, suspensions et fatigue récente…", "Deep search for player stats, absences, returns, suspensions and recent fatigue…", "Búsqueda profunda de stats de jugadores, ausencias, regresos, sanciones y fatiga reciente…", "Tiefsuche nach Spieler-Stats, Ausfällen, Rückkehrern, Sperren und Müdigkeit…"), color = TextSecondary)
                 } else if (actorDigests.isEmpty()) {
@@ -225,6 +231,7 @@ fun PredictionDetailScreen(
                     actorDigests.forEach { digest -> ActorDigestCard(digest, Violet) }
                 }
             }
+        }
         }
 
         item {
@@ -337,13 +344,67 @@ private fun isTennisPrediction(prediction: PredictionEntity): Boolean =
     prediction.sportKey.substringBefore('/').equals("tennis", ignoreCase = true) ||
         prediction.sportTitle.contains("tennis", ignoreCase = true)
 
-private fun tennisPlayerNames(prediction: PredictionEntity): List<String> = listOf(
-    prediction.homeTeam,
-    prediction.awayTeam,
-).map(::cleanDisplayText)
-    .filter { it.isNotBlank() }
-    .distinctBy { it.canonicalNameKey() }
-    .take(2)
+private fun tennisPlayerNames(prediction: PredictionEntity): List<String> {
+    val directNames = listOf(prediction.homeTeam, prediction.awayTeam)
+    val titleNames = splitTennisPlayerPair(displayPredictionTeams(prediction))
+    val statNames = (prediction.statSummary.lines() + prediction.contextInsights.lines())
+        .mapNotNull { line ->
+            cleanDisplayText(line)
+                .substringBefore(':', missingDelimiterValue = "")
+                .takeIf { it.isNotBlank() && " vs " !in it.lowercase(Locale.FRANCE) }
+        }
+    return (directNames + titleNames + statNames)
+        .flatMap(::splitTennisPlayerPair)
+        .map(::cleanTennisPlayerCandidate)
+        .filter(::isUsableTennisPlayerName)
+        .distinctBy { it.canonicalNameKey() }
+        .take(2)
+}
+
+private fun splitTennisPlayerPair(value: String): List<String> {
+    val cleaned = cleanDisplayText(value).trim()
+    if (cleaned.isBlank()) return emptyList()
+    val normalized = cleaned
+        .replace(Regex("\\s+(?:vs\\.?|v)\\s+", RegexOption.IGNORE_CASE), " — ")
+        .replace(" - ", " — ")
+    return normalized.split("—", "–")
+        .map(::cleanTennisPlayerCandidate)
+        .filter { it.isNotBlank() }
+}
+
+private fun cleanTennisPlayerCandidate(value: String): String =
+    cleanDisplayText(value)
+        .substringBefore(" plus de ", missingDelimiterValue = value)
+        .substringBefore(" moins de ", missingDelimiterValue = value)
+        .substringBefore(" over ", missingDelimiterValue = value)
+        .substringBefore(" under ", missingDelimiterValue = value)
+        .substringBefore(" avantage ", missingDelimiterValue = value)
+        .substringBefore(" conserve ", missingDelimiterValue = value)
+        .replace(Regex("\\s+"), " ")
+        .trim(' ', '·', '-', ':')
+
+private fun isUsableTennisPlayerName(value: String): Boolean {
+    val cleaned = cleanDisplayText(value)
+    val key = cleaned.canonicalNameKey().replace("/", " ")
+    if (cleaned.length !in 3..46) return false
+    if (Regex("""\d""").containsMatchIn(cleaned)) return false
+    return listOf(
+        "tennis",
+        "classement",
+        "bilan",
+        "service",
+        "retour",
+        "surface",
+        "forme",
+        "h2h",
+        "aucun fait",
+        "score",
+        "vainqueur",
+        "wimbledon",
+        "atp",
+        "wta",
+    ).none { it in key }
+}
 
 private fun tennisParticipantBilanDigests(prediction: PredictionEntity): List<ParticipantDigest> =
     tennisPlayerNames(prediction).map { player ->
@@ -360,18 +421,19 @@ private fun tennisActorBilanDigests(
     prediction: PredictionEntity,
     dossier: StructuredAnalysisDossier?,
 ): List<ActorDigest> =
-    tennisPlayerNames(prediction).map { player ->
-        val probabilities = dossier?.playerProbabilities.orEmpty()
+    tennisPlayerNames(prediction).mapNotNull { player ->
+        val directProbabilities = prediction.playerScenarios.lines()
+            .mapNotNull { it.toProbabilityLineOrNull() }
+        val probabilities = (directProbabilities + dossier?.playerProbabilities.orEmpty())
             .filter { probability -> probability.mentionsPlayer(player) }
             .filter(::isActionableProbabilityLine)
             .distinctBy { cleanDisplayText(it.type).canonicalNameKey() + "|" + cleanDisplayText(it.label).canonicalNameKey() }
             .take(3)
-        val lines = tennisStatLinesForPlayer(prediction, player, includeProbabilityNotes = false)
-            .ifEmpty { listOf("Aucune statistique joueur trouvée dans les sources actuelles.") }
+        if (probabilities.isEmpty()) return@mapNotNull null
         ActorDigest(
             name = player,
-            role = "Joueur tennis",
-            lines = compactUiLines(lines, max = 5),
+            role = "Marchés joueur tennis",
+            lines = emptyList(),
             probabilities = probabilities,
         )
     }
@@ -409,7 +471,9 @@ private fun tennisStatLinesForPlayer(
             .map { "${cleanDisplayText(it.type)} : ${stripDigestPrefix(player, it.label)} (${formatPercent(it.probability)})" }
     }
     return (statLines + probabilityLines)
+        .map(::simplifyTennisStatLine)
         .filterNot(::isNoRecentFactLine)
+        .filter(::isUsefulTennisStatLine)
         .distinctBy { it.canonicalNameKey() }
 }
 
@@ -417,8 +481,38 @@ private fun tennisScopedLine(player: String, line: String): String? {
     val cleaned = cleanDisplayText(line).trim()
     val prefix = cleaned.substringBefore(':', missingDelimiterValue = "")
     if (prefix.isBlank()) return null
-    if (prefix.canonicalNameKey() != player.canonicalNameKey()) return null
+    val prefixKey = cleanTennisPlayerCandidate(prefix).canonicalNameKey()
+    val playerKey = player.canonicalNameKey()
+    if (prefixKey != playerKey && !prefixKey.startsWith("$playerKey ")) return null
     return cleaned.substringAfter(':').trim(' ', '·', '-', ':').takeIf { it.isNotBlank() }
+}
+
+private fun simplifyTennisStatLine(value: String): String =
+    cleanDisplayText(value)
+        .replace("retour/pression 365j", "retour 365j")
+        .replace(Regex("\\s+"), " ")
+        .trim(' ', '·', '-', ':')
+
+private fun isUsefulTennisStatLine(value: String): Boolean {
+    val key = value.canonicalNameKey().replace("/", " ")
+    if (key.isBlank()) return false
+    if (isNoRecentFactLine(key)) return false
+    if (listOf("projection tennis", "source", "aucune stat").any { it in key }) return false
+    return listOf(
+        "classement",
+        "bilan 365j",
+        "bilan carriere",
+        "service 365j",
+        "retour 365j",
+        "forme recente",
+        "dynamique",
+        "charge",
+        "dernier match",
+        "sur dur",
+        "sur gazon",
+        "sur terre",
+        "sur surface",
+    ).any { it in key }
 }
 
 private fun isTennisMatchLevelLine(value: String): Boolean {
@@ -431,19 +525,17 @@ private fun isTennisMatchLevelLine(value: String): Boolean {
 }
 
 private fun isRealTennisPressFact(value: String): Boolean {
-    val key = value.canonicalNameKey()
+    val key = value.canonicalNameKey().replace("/", " ")
     if (key.isBlank()) return false
     if (isTennisMetricInfoText(key)) return false
     if (listOf("classement", "forme recente", "bilan 365j", "service 365j", "surface", "h2h").any { it in key }) return false
-    return listOf(
+    val healthOrAvailability = listOf(
         "bless",
         "forfait",
         "withdraw",
         "abandon",
-        "retour de blessure",
-        "retour competition",
-        "retour entrainement",
         "suspend",
+        "suspension",
         "absence",
         "absent",
         "malade",
@@ -455,6 +547,14 @@ private fun isRealTennisPressFact(value: String): Boolean {
         "dos",
         "cheville",
     ).any { it in key }
+    val concreteReturn = listOf(
+        "retour de blessure",
+        "retour competition",
+        "retour entrainement",
+        "retour apres",
+        "reprise entrainement",
+    ).any { it in key }
+    return healthOrAvailability || concreteReturn
 }
 
 private fun StructuredProbabilityLine.mentionsPlayer(player: String): Boolean =
@@ -621,8 +721,9 @@ private fun isPressInfoLine(line: StructuredReliabilityLine): Boolean {
     ).any { it in text }
 }
 
-private fun isTennisMetricInfoText(text: String): Boolean =
-    listOf(
+private fun isTennisMetricInfoText(text: String): Boolean {
+    val key = cleanDisplayText(text).canonicalNameKey().replace("/", " ")
+    return listOf(
         "service 365j",
         "retour pression 365j",
         "retour 365j",
@@ -636,7 +737,8 @@ private fun isTennisMetricInfoText(text: String): Boolean =
         "1res balles",
         "match moyen",
         "bilan 365j",
-    ).any { it in text }
+    ).any { it in key }
+}
 
 private fun pressInfoLine(scope: String, line: StructuredReliabilityLine): String {
     val body = stripDigestPrefix(scope, line.text)
@@ -945,6 +1047,9 @@ private fun isActionableProbabilityLine(scenario: StructuredProbabilityLine): Bo
         "home run",
         "coups sûrs",
         "coups surs",
+        "aces",
+        "break",
+        "service",
     ).any { it in text }
     val hasTeamMarket = listOf(
         "plus de",
@@ -958,6 +1063,10 @@ private fun isActionableProbabilityLine(scenario: StructuredProbabilityLine): Bo
         "score",
         "victoire",
         "match nul",
+        "sets",
+        "jeux",
+        "tie-break",
+        "tiebreak",
     ).any { it in text }
     return hasScore || hasMarketNumber || hasPlayerAction || hasTeamMarket
 }

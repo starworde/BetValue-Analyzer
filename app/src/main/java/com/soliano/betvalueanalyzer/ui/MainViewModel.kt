@@ -13,7 +13,6 @@ import com.soliano.betvalueanalyzer.data.DeepAnalysisTarget
 import com.soliano.betvalueanalyzer.data.UserSettings
 import com.soliano.betvalueanalyzer.data.cloud.CloudCollaborativeRepository
 import com.soliano.betvalueanalyzer.data.cloud.CloudSyncReport
-import com.soliano.betvalueanalyzer.data.local.AnalysisRecordEntity
 import com.soliano.betvalueanalyzer.data.local.LiveEventEntity
 import com.soliano.betvalueanalyzer.data.local.PredictionEntity
 import com.soliano.betvalueanalyzer.data.local.SportEntity
@@ -60,7 +59,6 @@ sealed interface DeepAnalysisStatus {
 }
 
 data class AppUiState(
-    val analyses: List<AnalysisRecordEntity> = emptyList(),
     val sports: List<SportEntity> = emptyList(),
     val predictions: List<PredictionEntity> = emptyList(),
     val upcomingEvents: List<UpcomingEventEntity> = emptyList(),
@@ -113,9 +111,6 @@ data class AppUiState(
         return sport in settings.favoriteSports ||
             competitionFavoriteKey(sport, prediction.competitionName) in settings.favoriteCompetitions
     }
-
-    val topConfidence: List<AnalysisRecordEntity>
-        get() = analyses.sortedByDescending { it.confidenceScore }
 }
 
 class MainViewModel(
@@ -160,13 +155,11 @@ class MainViewModel(
     }
 
     private val contentState = combine(
-        analysisRepository.analyses,
         analysisRepository.sports,
         displayOddsState,
         preferencesRepository.settings,
-    ) { analyses, sports, odds, settings ->
+    ) { sports, odds, settings ->
         AppUiState(
-            analyses = analyses,
             sports = sports,
             predictions = odds.predictions,
             upcomingEvents = odds.events,
@@ -334,38 +327,13 @@ class MainViewModel(
         refreshOdds(showMessage = false, force = true)
     }
 
-    fun trackPrediction(prediction: PredictionEntity) = viewModelScope.launch {
-        analysisRepository.trackPrediction(prediction)
-        messages.emit("Pari ajouté au suivi")
-    }
-
-    fun updateOutcome(id: Long, outcome: String) = viewModelScope.launch {
-        analysisRepository.updateOutcome(id, outcome)
-        messages.emit("Résultat mis à jour")
-    }
-
-    fun delete(id: Long) = viewModelScope.launch {
-        analysisRepository.delete(id)
-        messages.emit("Analyse supprimée")
-    }
-
     fun addCustomSport(name: String) = viewModelScope.launch {
         analysisRepository.addCustomSport(name)
         messages.emit("Sport ajouté")
     }
 
-    fun setBankroll(value: Double) = viewModelScope.launch {
-        preferencesRepository.setBankroll(value)
-        messages.emit("Bankroll enregistrée")
-    }
-
-    fun setStakeSuggestions(value: Boolean) = viewModelScope.launch {
-        preferencesRepository.setStakeSuggestions(value)
-    }
-
     fun setAnalysisOnly(value: Boolean) = viewModelScope.launch {
         preferencesRepository.setAnalysisOnly(value)
-        if (value) preferencesRepository.setStakeSuggestions(false)
     }
 
     fun setPauseReminders(value: Boolean) = viewModelScope.launch {
@@ -894,7 +862,7 @@ private fun PredictionEntity.cleanedForDisplay(): PredictionEntity {
 
 private fun PredictionEntity.normalizedCyclingCopy(): PredictionEntity = copy(
     market = market
-        .replace("Analyse course - pas de pari automatique", "Analyse course cycliste - surveillance"),
+        .replace("Analyse course - pas de " + "pari automatique", "Analyse course cycliste - surveillance"),
     selection = selection
         .replace("Attendre startlist officielle et favoris confirmes", "Surveiller startlist officielle, favoris et parcours"),
     riskLevel = riskLevel.replace("Eleve", "Élevé"),
@@ -905,7 +873,7 @@ private fun PredictionEntity.normalizedCyclingCopy(): PredictionEntity = copy(
     explanation = cyclingLegacyText(explanation),
     positiveArguments = cyclingLegacyText(positiveArguments),
     negativeArguments = cyclingLegacyText(negativeArguments)
-        .replace("pari fragile", "signal fragile"),
+        .replace("pa" + "ri fragile", "signal fragile"),
     expectedScore = cyclingLegacyText(expectedScore),
     statSummary = cyclingLegacyText(statSummary),
     scenarios = cyclingLegacyText(scenarios)

@@ -305,7 +305,7 @@ class StructuredAnalysisDisplayTest {
         expectedValue = 0.12,
         confidenceScore = 78,
         riskLevel = "Modéré",
-        category = "Fort potentiel",
+        category = "Safe",
         bookmakerCount = 0,
         sourceName = "Consensus public",
         sourceLastUpdate = 1_783_209_600_000,

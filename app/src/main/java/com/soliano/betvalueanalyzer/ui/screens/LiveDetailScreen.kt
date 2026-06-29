@@ -318,8 +318,8 @@ private fun liveDetailSportWatchFallback(sportKey: String): List<String> = when 
     "soccer" -> listOf("Score, cartons, changements et tirs cadres.", "Fatigue des titulaires et dynamique match.", "Compositions confirmees des publication.")
     "rugby" -> listOf("Essais, penalites, cartons et conquete.", "Impact du banc et fatigue en fin de match.", "Meteo et occupation du terrain.")
     "tennis" -> listOf("Breaks, service, tie-break et duree du match.", "Fatigue du joueur par rapport a sa saison.", "Blessure, soin medical ou baisse de vitesse.")
-    "cycling" -> listOf("Top 3, ecarts, echappee et meteo.", "Chutes, abandons et role d'equipe.", "Profil de l'etape avant pari vainqueur/podium.")
-    "racing", "nascar" -> listOf("Top 3, pneus, arrets et incidents.", "Safety car/pluie si confirmee.", "Rythme course avant pari podium.")
+    "cycling" -> listOf("Top 3, ecarts, echappee et meteo.", "Chutes, abandons et role d'equipe.", "Profil de l'etape avant projection vainqueur/podium.")
+    "racing", "nascar" -> listOf("Top 3, pneus, arrets et incidents.", "Safety car/pluie si confirmee.", "Rythme course avant projection podium.")
     "golf" -> listOf("Leaderboard, round, trous joues et score sous le par.", "Vent, putting et dynamique du dernier tour.", "Top 5/top 10 si ecarts serres.")
     else -> listOf("Score ou classement officiel.", "Stats cles adaptees au sport.", "Fatigue, blessure ou incident confirme.")
 }

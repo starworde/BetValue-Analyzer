@@ -38,11 +38,13 @@ import com.soliano.betvalueanalyzer.ui.t
 import com.soliano.betvalueanalyzer.ui.components.cleanDisplayText
 import com.soliano.betvalueanalyzer.ui.components.formatDate
 import com.soliano.betvalueanalyzer.ui.theme.Blue
+import com.soliano.betvalueanalyzer.ui.theme.Danger
 import com.soliano.betvalueanalyzer.ui.theme.Divider
 import com.soliano.betvalueanalyzer.ui.theme.Mint
 import com.soliano.betvalueanalyzer.ui.theme.SurfaceHigh
 import com.soliano.betvalueanalyzer.ui.theme.TextSecondary
 import com.soliano.betvalueanalyzer.ui.theme.Violet
+import java.util.Locale
 
 @Composable
 fun SettingsScreen(
@@ -78,11 +80,11 @@ fun SettingsScreen(
                     Icon(Icons.Outlined.Language, null, tint = Mint)
                     Column {
                         Text(t(language, "Flux public actif", "Public feed active", "Flujo público activo", "Öffentlicher Feed aktiv"), style = MaterialTheme.typography.titleLarge)
-                        Text(t(language, "Aucune clé API et aucun identifiant bookmaker.", "No API key and no bookmaker login.", "Sin clave API ni cuenta de bookmaker.", "Kein API-Schlüssel und kein Buchmacher-Login."), color = TextSecondary)
+                        Text(t(language, "Aucune clé API à saisir.", "No API key to enter.", "Sin clave API que introducir.", "Kein API-Schlüssel nötig."), color = TextSecondary)
                     }
                 }
                 Text(
-                    t(language, "Les calendriers et données de marché accessibles publiquement sont lus pour détecter les prochains événements. La source exacte est affichée sur chaque prédiction.", "Public schedules and market data are read to detect upcoming events. The exact source is shown on each prediction.", "Se leen calendarios y datos públicos para detectar próximos eventos. La fuente exacta aparece en cada pronóstico.", "Öffentliche Kalender und Marktdaten werden gelesen. Die genaue Quelle steht bei jeder Prognose."),
+                    t(language, "Les calendriers, scoreboards et statistiques publiques sont lus pour détecter les prochains événements. La source exacte est affichée sur chaque analyse.", "Public calendars, scoreboards and statistics are read to detect upcoming events. The exact source is shown on each analysis.", "Se leen calendarios, marcadores y estadísticas públicas para detectar próximos eventos. La fuente exacta aparece en cada análisis.", "Öffentliche Kalender, Scoreboards und Statistiken werden gelesen. Die genaue Quelle steht bei jeder Analyse."),
                     color = TextSecondary,
                 )
             }
@@ -110,6 +112,8 @@ fun SettingsScreen(
                 }
             }
         }
+
+        SourceHealthSection(state = state, language = language)
 
         Surface(shape = RoundedCornerShape(22.dp), color = SurfaceHigh) {
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -214,7 +218,7 @@ fun SettingsScreen(
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("BetValue Analyzer ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.titleMedium)
                 Text(t(language, "Flux sans clé : événements à venir et analyses pré-match.", "No-key feed: upcoming events and pre-match analysis.", "Flujo sin clave: próximos eventos y análisis prepartido.", "Feed ohne Schlüssel: kommende Ereignisse und Vorab-Analyse."), color = TextSecondary)
-                Text(t(language, "Aucune mise, bankroll ou prise de pari dans l'application.", "No stake, bankroll or bet placement in the app.", "Sin apuestas, bankroll ni colocación de apuestas en la app.", "Keine Einsätze, Bankroll oder Wettabgabe in der App."), color = TextSecondary)
+                Text(t(language, "Interface recentrée sur l’analyse sportive : calendrier, live, stats et diagnostics sources.", "Interface focused on sports analysis: calendar, live, stats and source diagnostics.", "Interfaz centrada en análisis deportivo: calendario, directo, stats y diagnóstico de fuentes.", "Fokus auf Sportanalyse: Kalender, Live, Stats und Quellen-Diagnose."), color = TextSecondary)
             }
         }
     }
@@ -238,6 +242,148 @@ private fun CloudInfoRow(label: String, value: String) {
 private fun cloudTimeLabel(value: Long, language: String): String =
     if (value > 0L) formatDate(value)
     else t(language, "Jamais", "Never", "Nunca", "Nie")
+
+@Composable
+private fun SourceHealthSection(state: AppUiState, language: String) {
+    val health = sourceHealthRows(state, language)
+    Surface(shape = RoundedCornerShape(22.dp), color = MaterialTheme.colorScheme.surface) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Outlined.Security, null, tint = Mint)
+                Column {
+                    Text(t(language, "Santé des sources", "Source health", "Salud de fuentes", "Quellenstatus"), style = MaterialTheme.typography.titleLarge)
+                    Text(t(language, "Pourquoi un match manque : source vide, erreur, cloud ou donnée pas publiée.", "Why an event is missing: empty source, error, cloud or unpublished data.", "Por qué falta un evento: fuente vacía, error, cloud o dato no publicado.", "Warum etwas fehlt: leere Quelle, Fehler, Cloud oder nicht veröffentlichte Daten."), color = TextSecondary)
+                }
+            }
+            health.forEach { row ->
+                DiagnosticRow(row.label, row.value, row.statusColor)
+            }
+            val sportRows = sourceHealthSportRows(state)
+            if (sportRows.isNotEmpty()) {
+                HorizontalDivider(color = Divider)
+                Text(t(language, "Événements trouvés par sport", "Events found by sport", "Eventos encontrados por deporte", "Gefundene Ereignisse je Sport"), style = MaterialTheme.typography.titleMedium, color = Blue)
+                sportRows.forEach { row ->
+                    DiagnosticRow(row.label, row.value, row.statusColor)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DiagnosticRow(label: String, value: String, color: androidx.compose.ui.graphics.Color) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
+        Text(cleanDisplayText(label), style = MaterialTheme.typography.bodyMedium, color = TextSecondary, modifier = Modifier.weight(1f))
+        Text(cleanDisplayText(value), style = MaterialTheme.typography.bodyMedium, color = color, modifier = Modifier.weight(1.1f))
+    }
+}
+
+private data class SourceHealthRow(
+    val label: String,
+    val value: String,
+    val statusColor: androidx.compose.ui.graphics.Color,
+)
+
+private fun sourceHealthRows(state: AppUiState, language: String): List<SourceHealthRow> {
+    val sourceNames = (
+        state.upcomingEvents.map { it.sourceName } +
+            state.predictions.map { it.sourceName } +
+            state.liveEvents.map { it.sourceName }
+        )
+        .map(::cleanDisplayText)
+        .filter { it.isNotBlank() }
+        .distinctBy { it.lowercase(Locale.FRANCE) }
+    val eventsBySport = state.upcomingEvents.groupingBy { cleanDisplayText(it.sportTitle) }.eachCount()
+    val emptyMajorSports = listOf("Football", "Rugby", "Tennis", "Volley-ball", "Basketball", "Cyclisme", "Formule 1", "Baseball", "Hockey")
+        .filter { sport -> eventsBySport.keys.none { it.equals(sport, ignoreCase = true) } }
+    val syncError = (state.syncStatus as? SyncStatus.Error)?.message.orEmpty()
+    val cloudError = cleanDisplayText(state.settings.lastCloudError)
+    val firestoreRead = firestoreStatus(
+        enabled = state.settings.cloudCollaborativeEnabled,
+        successEpoch = state.settings.lastCloudReadEpoch,
+        error = cloudError,
+        keyword = "lecture",
+        language = language,
+    )
+    val firestoreWrite = firestoreStatus(
+        enabled = state.settings.cloudCollaborativeEnabled,
+        successEpoch = state.settings.lastCloudUploadEpoch,
+        error = cloudError,
+        keyword = "ecriture",
+        language = language,
+    )
+    return listOf(
+        SourceHealthRow(
+            t(language, "Sources actives", "Active sources", "Fuentes activas", "Aktive Quellen"),
+            if (sourceNames.isEmpty()) t(language, "Aucune source chargée", "No source loaded", "Ninguna fuente cargada", "Keine Quelle geladen")
+            else "${sourceNames.size} · ${sourceNames.take(4).joinToString(", ")}",
+            if (sourceNames.isEmpty()) TextSecondary else Mint,
+        ),
+        SourceHealthRow(
+            t(language, "Sources vides visibles", "Visible empty sources", "Fuentes vacías visibles", "Sichtbar leere Quellen"),
+            if (emptyMajorSports.isEmpty()) t(language, "Aucun sport majeur vide", "No major sport empty", "Ningún deporte mayor vacío", "Keine große Sportart leer")
+            else emptyMajorSports.take(5).joinToString(", "),
+            if (emptyMajorSports.isEmpty()) Mint else Blue,
+        ),
+        SourceHealthRow(
+            t(language, "Dernière actualisation", "Last refresh", "Última actualización", "Letzte Aktualisierung"),
+            cloudTimeLabel(state.settings.lastSyncEpoch, language),
+            if (state.settings.lastSyncEpoch > 0L) Mint else TextSecondary,
+        ),
+        SourceHealthRow(
+            t(language, "Erreurs app/source", "App/source errors", "Errores app/fuente", "App-/Quellenfehler"),
+            cleanDisplayText(syncError).ifBlank { t(language, "Aucune erreur actuelle", "No current error", "Sin error actual", "Kein aktueller Fehler") },
+            if (syncError.isBlank()) Mint else Danger,
+        ),
+        SourceHealthRow(
+            "Firestore lecture",
+            firestoreRead.first,
+            firestoreRead.second,
+        ),
+        SourceHealthRow(
+            "Firestore écriture",
+            firestoreWrite.first,
+            firestoreWrite.second,
+        ),
+        SourceHealthRow(
+            "GitHub Actions",
+            t(language, "Non exposé à l’app · vérifier côté GitHub si besoin", "Not exposed to the app · check GitHub if needed", "No expuesto a la app · revisar GitHub si hace falta", "Nicht in der App verfügbar · bei Bedarf GitHub prüfen"),
+            TextSecondary,
+        ),
+        SourceHealthRow(
+            t(language, "Dernière erreur cloud", "Last cloud error", "Último error cloud", "Letzter Cloud-Fehler"),
+            cloudError.ifBlank { t(language, "Aucune", "None", "Ninguna", "Keine") },
+            if (cloudError.isBlank()) Mint else Danger,
+        ),
+    )
+}
+
+private fun sourceHealthSportRows(state: AppUiState): List<SourceHealthRow> =
+    state.upcomingEvents
+        .groupingBy { cleanDisplayText(it.sportTitle).ifBlank { it.sportKey } }
+        .eachCount()
+        .entries
+        .sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key })
+        .take(10)
+        .map { SourceHealthRow(it.key, "${it.value} événement(s)", Mint) }
+
+private fun firestoreStatus(
+    enabled: Boolean,
+    successEpoch: Long,
+    error: String,
+    keyword: String,
+    language: String,
+): Pair<String, androidx.compose.ui.graphics.Color> {
+    if (!enabled) return t(language, "Désactivé", "Disabled", "Desactivado", "Deaktiviert") to TextSecondary
+    val normalized = error.lowercase(Locale.FRANCE)
+    val hasFirestoreError = "firestore" in normalized || keyword in normalized || "refuse" in normalized || "permission" in normalized
+    if (hasFirestoreError) return cleanDisplayText(error).ifBlank { "Erreur Firestore" } to Danger
+    return if (successEpoch > 0L) {
+        "OK · ${formatDate(successEpoch)}" to Mint
+    } else {
+        t(language, "Pas encore confirmé", "Not confirmed yet", "Aún no confirmado", "Noch nicht bestätigt") to TextSecondary
+    }
+}
 
 @Composable
 private fun LanguageChip(code: String, label: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {

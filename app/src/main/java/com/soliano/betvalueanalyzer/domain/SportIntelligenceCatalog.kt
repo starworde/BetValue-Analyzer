@@ -10,9 +10,9 @@ data class SportIntelligenceProfile(
 ) {
     val summaryLines: List<String>
         get() = listOf(
-            "Stats clés surveillées : ${watchedStats.joinToString(", ")}",
-            "Stats joueurs suivies : ${playerStats.joinToString(", ")}",
-            "Contexte à recouper : ${contextStats.joinToString(", ")}",
+            "Stats clés utilisées : ${watchedStats.joinToString(", ")}",
+            "Stats joueurs : ${playerStats.joinToString(", ")}",
+            "Contexte utile : ${contextStats.joinToString(", ")}",
         )
 }
 
@@ -337,7 +337,7 @@ object SportIntelligenceCatalog {
         val universalPlayerScenarios = listOf(
             ProbabilityScenario("Joueur : performance à ajuster si charge récente au-dessus de sa moyenne saison", 0.58, "Joueur · Fatigue"),
             ProbabilityScenario("Joueur : retour de blessure à intégrer avant validation", 0.55, "Joueur · État physique"),
-            ProbabilityScenario("Joueur : rôle titulaire/remplaçant à confirmer avant pari performance", 0.57, "Joueur · Rôle"),
+            ProbabilityScenario("Joueur : rôle titulaire/remplaçant à confirmer avant projection performance", 0.57, "Joueur · Rôle"),
         )
         return SportIntelligenceProfile(
             sportKey = sportKey,

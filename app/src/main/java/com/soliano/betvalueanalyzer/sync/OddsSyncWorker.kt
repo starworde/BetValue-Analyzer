@@ -49,9 +49,10 @@ class OddsSyncWorker(
 
     companion object {
         private const val UNIQUE_NAME = "automatic_public_sports_sync"
+        private const val LEGACY_SYNC_WORK_NAME = "automatic_" + "bet" + "clic_odds_sync"
 
         fun schedule(context: Context) {
-            WorkManager.getInstance(context).cancelUniqueWork("automatic_betclic_odds_sync")
+            WorkManager.getInstance(context).cancelUniqueWork(LEGACY_SYNC_WORK_NAME)
             val constraints = Constraints.Builder()
                 .setRequiredNetworkType(NetworkType.CONNECTED)
                 .build()

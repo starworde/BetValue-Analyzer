@@ -473,7 +473,7 @@ private fun participantActionableReading(name: String, lines: List<String>): Str
         "fatigue" in text || "minutes" in text || "calendrier charge" in text ->
             "Impact concret : charge/fatigue pour $cleanName ; baisse possible du pressing, du volume et du temps de jeu des cadres."
         "bless" in text || "absent" in text || "suspend" in text || "indisponible" in text ->
-            "Impact concret : disponibilité de $cleanName ; absence ou retour d’un cadre change attaque, défense et paris joueurs."
+            "Impact concret : disponibilité de $cleanName ; absence ou retour d’un cadre change attaque, défense et projections joueurs."
         "domicile" in text || "recoit" in text ->
             "Impact concret : avantage terrain seulement avec lieu confirmé ; utiliser production maison/extérieure plutôt qu’un domicile automatique."
         else -> ""
@@ -580,7 +580,7 @@ private fun competitionStakeReason(name: String, statuses: List<String>, lines: 
         "doit defendre sa place" in normalizedStatuses ->
             "$cleanName protège une position : défense, discipline et gestion des temps faibles pèsent davantage.$evidenceSuffix"
         "deja qualifie" in normalizedStatuses ->
-            "$cleanName a déjà validé une partie de son objectif : composition/startlist prioritaire avant tout pari joueur ou score exact.$evidenceSuffix"
+            "$cleanName a déjà validé une partie de son objectif : composition/startlist prioritaire avant toute projection joueur ou score exact.$evidenceSuffix"
         "deja elimine" in normalizedStatuses ->
             "$cleanName n’a plus d’objectif clair : ignorer le contexte si les stats récentes ne montrent pas de volume réel.$evidenceSuffix"
         "match sans enjeu majeur" in normalizedStatuses ->

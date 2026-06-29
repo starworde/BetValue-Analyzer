@@ -2,7 +2,6 @@ package com.soliano.betvalueanalyzer.data
 
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
-import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -21,8 +20,6 @@ private val Context.dataStore by preferencesDataStore(name = "user_settings")
 
 data class UserSettings(
     val ageConfirmed: Boolean = false,
-    val bankroll: Double = 100.0,
-    val stakeSuggestions: Boolean = true,
     val analysisOnly: Boolean = false,
     val pauseReminders: Boolean = true,
     val autoRefresh: Boolean = true,
@@ -47,8 +44,6 @@ class PreferencesRepository(private val context: Context) : SyncMetadataStore, C
 
     private object Keys {
         val ageConfirmed = booleanPreferencesKey("age_confirmed")
-        val bankroll = doublePreferencesKey("bankroll")
-        val stakeSuggestions = booleanPreferencesKey("stake_suggestions")
         val analysisOnly = booleanPreferencesKey("analysis_only")
         val pauseReminders = booleanPreferencesKey("pause_reminders")
         val autoRefresh = booleanPreferencesKey("auto_refresh")
@@ -73,8 +68,6 @@ class PreferencesRepository(private val context: Context) : SyncMetadataStore, C
         .map { preferences ->
             UserSettings(
                 ageConfirmed = preferences[Keys.ageConfirmed] ?: false,
-                bankroll = preferences[Keys.bankroll] ?: 100.0,
-                stakeSuggestions = preferences[Keys.stakeSuggestions] ?: true,
                 analysisOnly = preferences[Keys.analysisOnly] ?: false,
                 pauseReminders = preferences[Keys.pauseReminders] ?: true,
                 autoRefresh = preferences[Keys.autoRefresh] ?: true,
@@ -92,8 +85,6 @@ class PreferencesRepository(private val context: Context) : SyncMetadataStore, C
         }
 
     suspend fun confirmAge() = context.dataStore.edit { it[Keys.ageConfirmed] = true }
-    suspend fun setBankroll(value: Double) = context.dataStore.edit { it[Keys.bankroll] = value.coerceAtLeast(0.0) }
-    suspend fun setStakeSuggestions(value: Boolean) = context.dataStore.edit { it[Keys.stakeSuggestions] = value }
     suspend fun setAnalysisOnly(value: Boolean) = context.dataStore.edit { it[Keys.analysisOnly] = value }
     suspend fun setPauseReminders(value: Boolean) = context.dataStore.edit { it[Keys.pauseReminders] = value }
     suspend fun setAutoRefresh(value: Boolean) = context.dataStore.edit { it[Keys.autoRefresh] = value }

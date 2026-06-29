@@ -875,7 +875,7 @@ object PublicPredictionEngine {
             riskLevel = riskLevel(probability),
             category = category(confidence),
             sourceName = "${event.dataSourceName} · forme et bilan",
-            explanation = "Aucune cote n'est nécessaire : l'analyse compare uniquement la forme récente et le bilan public des deux participants. " +
+            explanation = "L'analyse compare uniquement la forme récente et le bilan public des deux participants. " +
                 "Le scénario le plus probable est « $name » à ${percent(probability)}.",
             positiveArguments = listOf(
                 formText,
@@ -1116,9 +1116,9 @@ object PublicPredictionEngine {
             category = "Exotique",
             sourceName = sourceName(event.provider),
             explanation = "Après retrait de la marge, le marché public favorise le handicap « $team $lineText ». " +
-                "Ce signal secondaire sert surtout d'alternative au pari vainqueur.",
+                "Ce signal secondaire sert surtout d'alternative au scénario vainqueur.",
             positiveArguments = listOf(
-                "Le handicap offre une protection ou un rendement différent du pari sec.",
+                "Le handicap offre une lecture plus nuancée que le vainqueur sec.",
                 "L'orientation normalisée atteint ${percent(estimated)}.",
             ),
             negativeArguments = listOf(
@@ -1550,7 +1550,7 @@ object PublicPredictionEngine {
                 expectedState = "Combat MMA à qualifier par style et forme",
                 explanation = "Le combat est détecté, mais il faut croiser forme récente, opposition striking/grappling, catégorie de poids, camp d'entraînement, reach, cardio, défense takedown et risques de finish avant de proposer vainqueur/méthode.",
                 positiveArguments = listOf("Combat MMA confirmé au calendrier.", "Les marchés adaptés seront vainqueur, méthode KO/TKO, soumission ou décision, durée/rounds si les données sont solides."),
-                negativeArguments = listOf("Blessure, cut de poids, changement d'adversaire ou opposition de styles peuvent renverser le signal.", "Sans historique de finish/distance, le pari méthode est trop fragile."),
+                negativeArguments = listOf("Blessure, cut de poids, changement d'adversaire ou opposition de styles peuvent renverser le signal.", "Sans historique de finish/distance, la projection méthode est trop fragile."),
                 statSummary = listOf("Combat : $eventLabel", "Stats attendues : striking, takedowns, défense takedown, soumissions, finish/décision, reach, cardio, camp"),
                 scenarios = listOf(
                     ProbabilityScenario("Combat MMA confirmé au calendrier public", 1.0, "Calendrier MMA"),
@@ -1571,7 +1571,7 @@ object PublicPredictionEngine {
                 expectedState = "Combat de boxe à qualifier par style et forme",
                 explanation = "Le combat est détecté, mais la boxe demande de croiser forme récente, opposition de styles, catégorie de poids, reach, volume de coups, puissance, menton, cardio et historique KO/décision avant de proposer vainqueur ou méthode.",
                 positiveArguments = listOf("Combat de boxe confirmé au calendrier.", "Les marchés adaptés seront vainqueur, KO/TKO, décision ou durée/rounds si les données sont solides."),
-                negativeArguments = listOf("Cut de poids, blessure, changement d'adversaire ou style défensif peuvent changer la projection.", "Sans historique KO/décision et cardio, le pari méthode reste fragile."),
+                negativeArguments = listOf("Cut de poids, blessure, changement d'adversaire ou style défensif peuvent changer la projection.", "Sans historique KO/décision et cardio, la projection méthode reste fragile."),
                 statSummary = listOf("Combat : $eventLabel", "Stats attendues : reach, catégorie, volume de coups, KO/TKO, décisions, knockdowns, cardio, camp"),
                 scenarios = listOf(
                     ProbabilityScenario("Combat de boxe confirmé au calendrier public", 1.0, "Calendrier boxe"),
