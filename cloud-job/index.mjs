@@ -62,7 +62,14 @@ const THE_SPORTS_DB_LEAGUES = [
   ["4465", "cycling", "Cyclisme", "UCI World Tour", "RACE"],
 ].map(([id, sport, sportTitle, competition, eventType]) => ({ id, sport, sportTitle, competition, eventType }));
 
-const SPORTS_DB_SEASON_EXPANDED_SPORTS = new Set(["tennis", "volleyball"]);
+const SPORTS_DB_SEASON_EXPANDED_SPORTS = new Set([
+  "tennis",
+  "volleyball",
+  "handball",
+  "cricket",
+  "snooker",
+  "darts",
+]);
 
 const VOLLEYBALL_WORLD_FEEDS = [
   {
@@ -348,10 +355,8 @@ function fromVolleyballWorldMatch(match, feed) {
   const teams = volleyballWorldTeams(match);
   if (!teams.home || !teams.away) return null;
   const competition = cleanName([
-    match.competitionFullName || match.competitionShortName || feed.competition,
+    feed.competition,
     match.genderText || match.gender,
-    match.roundName,
-    match.pool?.name,
   ].filter(Boolean).join(" · "));
   const eventName = `${teams.home} — ${teams.away}`;
   return {

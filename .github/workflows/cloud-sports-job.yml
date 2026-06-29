@@ -9,8 +9,10 @@ on:
       - "cloud-job/**"
       - ".github/workflows/cloud-sports-job.yml"
   schedule:
-    # UTC. Check automatique toutes les 2 heures pour garder Firebase plus frais sans service payant.
-    - cron: "0 */2 * * *"
+    # UTC. Check automatique toutes les ~90 minutes pour garder Firebase plus frais
+    # sans dépasser volontairement un rythme gratuit raisonnable.
+    - cron: "0 0,3,6,9,12,15,18,21 * * *"
+    - cron: "30 1,4,7,10,13,16,19,22 * * *"
 
 permissions:
   contents: read

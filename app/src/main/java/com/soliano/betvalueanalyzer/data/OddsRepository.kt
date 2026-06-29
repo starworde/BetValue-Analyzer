@@ -2396,7 +2396,14 @@ class OddsRepository(
         val PROFILE_SPORTS = TEAM_SPORTS
         val LONG_LIVE_MONITOR_SPORTS = setOf("cycling", "racing", "nascar", "golf", "tennis", "athletics", "mma", "boxing", "darts", "snooker")
         val RESULT_BOARD_LIVE_SPORTS = setOf("cycling", "racing", "nascar", "golf", "athletics")
-        val SPORTS_DB_SEASON_EXPANDED_SPORTS = setOf("tennis", "volleyball")
+        val SPORTS_DB_SEASON_EXPANDED_SPORTS = setOf(
+            "tennis",
+            "volleyball",
+            "handball",
+            "cricket",
+            "snooker",
+            "darts",
+        )
 
         private val PARIS_ZONE: ZoneId = ZoneId.of("Europe/Paris")
 

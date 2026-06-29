@@ -66,6 +66,7 @@ object SportsCatalog {
             competition("handball", "tsdb-4536", "French LNH Division 1"),
         )),
         CatalogSport("volleyball", "Volley-ball", listOf(
+            competition("volleyball", "volleyball-world-vnl", "Volleyball Nations League"),
             competition("volleyball", "tsdb-5083", "FIVB Volleyball Mens Nations League"),
             competition("volleyball", "tsdb-5084", "FIVB Volleyball Womens Nations League"),
             competition("volleyball", "tsdb-5848", "European Volleyball League"),
@@ -94,6 +95,7 @@ object SportsCatalog {
         CatalogSport("football", "Football américain", listOf(competition("football", "nfl", "NFL"))),
     )
 
+    @Suppress("UNUSED_PARAMETER")
     private fun sport(key: String, name: String, competitionNames: List<String>, league: String): CatalogSport =
         CatalogSport(key, name, competitionNames.map { competition(key, league, it) })
 
