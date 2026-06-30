@@ -68,10 +68,25 @@ class LocalAnalysisAssistantTest {
         assertTrue(text.contains("retour"))
         assertTrue(text.contains("carton") || text.contains("suspension"))
         assertFalse(reading.status == LocalAiStatus.Impossible)
-        val analysis = reading.sections.first { it.title == "Analyse IA" }.lines.joinToString(" ")
+        val titles = reading.sections.map { it.title }
+        assertTrue(titles.contains("Analyse IA approfondie"))
+        assertTrue(titles.contains("Lecture globale du match/événement"))
+        assertTrue(titles.contains("Analyse tactique / sportive"))
+        assertTrue(titles.contains("Dernières nouvelles"))
+        assertTrue(titles.contains("Pourquoi le favori peut perdre"))
+        assertTrue(titles.contains("Pourquoi l’outsider peut gagner"))
+        assertTrue(titles.contains("Conclusion argumentée"))
+        assertTrue(titles.contains("Sources & transparence"))
+        val analysis = reading.sections.first { it.title == "Analyse IA approfondie" }.lines.joinToString(" ")
         assertTrue(analysis.contains("Ce que ça change"))
         assertTrue(analysis.contains("Lecture terrain"))
         assertTrue(analysis.contains("Lecture opérationnelle"))
+        val tactical = reading.sections.first { it.title == "Analyse tactique / sportive" }.lines.joinToString(" ")
+        assertTrue(tactical.contains("Pressing"))
+        assertTrue(tactical.contains("Compositions"))
+        val conclusion = reading.sections.first { it.title == "Conclusion argumentée" }.lines.joinToString(" ")
+        assertTrue(conclusion.contains("Scénario le plus probable"))
+        assertTrue(conclusion.contains("Scénario alternatif crédible"))
     }
 
     @Test
@@ -111,10 +126,15 @@ class LocalAnalysisAssistantTest {
         assertFalse(vocabulary.contains("buts"))
         assertTrue(reading.sections.any { it.title.contains("Rafael Jodar") })
         assertTrue(reading.sections.any { it.title.contains("Felix Gill") })
-        val analysis = reading.sections.first { it.title == "Analyse IA" }.lines.joinToString(" ").lowercase()
+        val analysis = reading.sections.first { it.title == "Analyse IA approfondie" }.lines.joinToString(" ").lowercase()
         assertTrue(analysis.contains("surface"))
         assertTrue(analysis.contains("service"))
         assertTrue(analysis.contains("classement") || analysis.contains("fatigue"))
+        val tactical = reading.sections.first { it.title == "Analyse tactique / sportive" }.lines.joinToString(" ").lowercase()
+        assertTrue(tactical.contains("surface"))
+        assertTrue(tactical.contains("service"))
+        assertTrue(tactical.contains("retour"))
+        assertTrue(tactical.contains("fatigue") || tactical.contains("h2h"))
     }
 
     @Test
@@ -155,6 +175,8 @@ class LocalAnalysisAssistantTest {
         val liveAnalysis = racing.sections.first { it.title == "Analyse IA live" }.lines.joinToString(" ").lowercase()
         assertTrue(liveAnalysis.contains("état réel") || liveAnalysis.contains("etat reel"))
         assertTrue(liveAnalysis.contains("stratégie") || liveAnalysis.contains("tours"))
+        assertTrue(racing.sections.any { it.title == "Conclusion live argumentée" })
+        assertTrue(racing.sections.any { it.title == "Sources & transparence live" })
     }
 
     private fun prediction(

@@ -349,56 +349,7 @@ class MainViewModel(
             launchDeepAnalysis(target)
             return
         }
-        if (event.eventType == "GP" || event.sportKey == "racing") {
-            launchDeepAnalysis(
-                DeepAnalysisTarget(
-                    id = event.id,
-                    sportKey = event.sportKey,
-                    sportTitle = event.sportTitle,
-                    competitionKey = event.competitionKey,
-                    competitionName = event.competitionName,
-                    commenceTime = event.commenceTime,
-                    homeTeam = event.eventName,
-                    awayTeam = "Grille F1",
-                )
-            )
-            return
-        }
-        if (event.sportKey == "cycling") {
-            launchDeepAnalysis(
-                DeepAnalysisTarget(
-                    id = event.id,
-                    sportKey = event.sportKey,
-                    sportTitle = event.sportTitle,
-                    competitionKey = event.competitionKey,
-                    competitionName = event.competitionName,
-                    commenceTime = event.commenceTime,
-                    homeTeam = event.eventName,
-                    awayTeam = "Peloton",
-                )
-            )
-            return
-        }
-        if (event.sportKey !in setOf("soccer", "basketball", "baseball", "rugby")) {
-            messages.tryEmit("Cet événement favori reste suivi et actualisé ; le calcul individuel sera lancé quand ses données détaillées seront disponibles.")
-            return
-        }
-        if (event.eventType != "MATCH" || event.participantA.isBlank() || event.participantB.isBlank()) {
-            messages.tryEmit("Le tournoi est suivi, mais ses deux participants ne sont pas encore confirmés.")
-            return
-        }
-        launchDeepAnalysis(
-            DeepAnalysisTarget(
-                id = event.id,
-                sportKey = event.sportKey,
-                sportTitle = event.sportTitle,
-                competitionKey = event.competitionKey,
-                competitionName = event.competitionName,
-                commenceTime = event.commenceTime,
-                homeTeam = event.participantA,
-                awayTeam = event.participantB,
-            )
-        )
+        messages.tryEmit("Cet événement est suivi, mais les participants ou données détaillées ne sont pas encore confirmés.")
     }
 
     fun analyzePrediction(prediction: PredictionEntity) {

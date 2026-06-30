@@ -3,6 +3,9 @@ package com.soliano.betvalueanalyzer.domain
 import com.soliano.betvalueanalyzer.data.local.LiveEventEntity
 import com.soliano.betvalueanalyzer.data.local.PredictionEntity
 import java.text.Normalizer
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -90,8 +93,30 @@ object LocalAnalysisAssistant {
             missingData = missingData,
             contradictions = contradictions,
         )
+        val latestNews = latestNewsLines(contextLines, lineupLines, sourceLines)
+        val globalLines = globalReadingLines(
+            prediction = prediction,
+            profile = profile,
+            status = status,
+            participants = participants,
+            allEvidence = allEvidence,
+            importantSignals = importantSignals,
+            missingData = missingData,
+        )
+        val tacticalLines = tacticalAnalysisLines(profile, allEvidence + scenarioLines + playerLines + latestNews)
+        val favoriteLines = favoriteFragilityLines(prediction, participants, allEvidence + negativeLines, contradictions, missingData)
+        val outsiderLines = outsiderCredibilityLines(prediction, participants, allEvidence + positiveLines, scenarioLines)
+        val conclusionLines = conclusionArgumentLines(prediction, status, participants, scenarioLines, missingData, contradictions)
+        val transparencyLines = sourceTransparencyLines(prediction, sourceLines, contextLines, missingData, status)
         val sections = buildList {
-            add(LocalAiSection("Analyse IA", analysisLines))
+            add(LocalAiSection("Analyse IA approfondie", analysisLines))
+            add(LocalAiSection("Lecture globale du match/événement", globalLines))
+            add(LocalAiSection("Analyse tactique / sportive", tacticalLines))
+            add(LocalAiSection("Dernières nouvelles", latestNews))
+            add(LocalAiSection("Pourquoi le favori peut perdre", favoriteLines))
+            add(LocalAiSection("Pourquoi l’outsider peut gagner", outsiderLines))
+            add(LocalAiSection("Conclusion argumentée", conclusionLines))
+            add(LocalAiSection("Sources & transparence", transparencyLines))
             add(LocalAiSection("Résumé rapide", listOf(summary)))
             add(LocalAiSection("Points forts ${participants.firstLabel}", participantLines(participants.first, allEvidence + positiveLines, profile.strengthKeywords)))
             add(LocalAiSection("Points faibles ${participants.firstLabel}", participantLines(participants.first, allEvidence + negativeLines, profile.weaknessKeywords)))
@@ -110,7 +135,7 @@ object LocalAnalysisAssistant {
             contradictions = contradictions.ifEmpty { listOf("Aucune contradiction nette relevée dans les données disponibles.") },
             missingData = missingData.ifEmpty { listOf("Aucun manque majeur détecté dans les champs déjà calculés.") },
             reliability = reliabilityLines(prediction, sourceCount, allEvidence.size, status),
-            conclusion = conclusion(prediction.selection, status, missingData, contradictions),
+            conclusion = conclusionFromLines(conclusionLines, prediction.selection, status),
         )
     }
 
@@ -155,6 +180,28 @@ object LocalAnalysisAssistant {
             contradictions = contradictions,
             hasScoreOrRanking = hasScoreOrRanking,
         )
+        val bestLiveScenario = scenarioLines.firstOrNull()?.cleanAssistantText()
+        val liveConclusionLines = if (status == LocalAiStatus.Weak || status == LocalAiStatus.WatchOnly || status == LocalAiStatus.Impossible) {
+            listOf(
+                WEAK_DATA_CONCLUSION,
+                "Donnée prioritaire à récupérer : ${missingData.firstOrNull()?.cleanAssistantText() ?: "score/classement, temps et scénarios live recoupés"}.",
+            )
+        } else {
+            listOf(
+                "Scénario live le plus probable : ${bestLiveScenario ?: "continuer la lecture avec l’état réel, aucun scénario chiffré n’est assez propre."}",
+                "Scénario alternatif crédible : changement brutal après score, carton, break, safety car, météo, rotation ou écart de rythme.",
+                "Ce qui peut changer l’analyse : ${missingData.firstOrNull()?.cleanAssistantText() ?: "prochaine action forte ou nouvelle métrique officielle."}",
+                "Niveau de confiance : ${status.label}, recoupement live ${sourceLines.size} source(s).",
+            )
+        }
+        val liveTransparencyLines = buildList {
+            val sources = (listOf(event.sourceName) + sourceLines).map { it.cleanAssistantText() }.filter { it.isNotBlank() }.distinct()
+            add("Sources utilisées : ${sources.take(6).joinToString(", ").ifBlank { "non listées dans cette fiche live" }}.")
+            add("Sources manquantes / limites : ${missingData.take(4).joinToString(" ; ").ifBlank { "aucun manque majeur détecté dans les champs live chargés" }}.")
+            add("Dernière mise à jour : ${formatUpdateTime(event.lastUpdate)}.")
+            add("Solidité des données : ${status.label}.")
+            add("Architecture : analyse live locale sans clé API dans l’APK ; un backend sécurisé pourra enrichir le recoupement plus tard.")
+        }
         return LocalAiReading(
             status = status,
             summary = summary,
@@ -164,6 +211,8 @@ object LocalAnalysisAssistant {
                 LocalAiSection("Résumé rapide", listOf(summary)),
                 LocalAiSection("Stats live utiles", statLines.takeUseful(6)),
                 LocalAiSection("Scénarios live", scenarioLines.takeUseful(5)),
+                LocalAiSection("Conclusion live argumentée", liveConclusionLines),
+                LocalAiSection("Sources & transparence live", liveTransparencyLines),
             ),
             importantSignals = importantSignalLines(statLines, profile).ifEmpty { listOf("Aucun fait relevé") },
             contradictions = contradictions.ifEmpty { listOf("Aucune contradiction nette relevée dans les données disponibles.") },
@@ -173,11 +222,7 @@ object LocalAnalysisAssistant {
                 "Métrique principale : ${if (hasScoreOrRanking) "présente" else "manquante"}.",
                 "Statut : ${status.label}.",
             ),
-            conclusion = if (status == LocalAiStatus.Weak || status == LocalAiStatus.WatchOnly || status == LocalAiStatus.Impossible) {
-                WEAK_DATA_CONCLUSION
-            } else {
-            "Lecture finale : le live est exploitable avec les données actuelles, puis se recalcule dès qu’un score, classement, carton, rotation, météo ou rythme change."
-            },
+            conclusion = liveConclusionLines.firstOrNull() ?: WEAK_DATA_CONCLUSION,
         )
     }
 
@@ -200,7 +245,7 @@ object LocalAnalysisAssistant {
             playerLines.isNotEmpty() -> " Les scénarios joueurs sont présents."
             else -> ""
         }
-        return "Lecture locale ${profile.label} : le moteur statistique pointe « ${prediction.selection.cleanAssistantText()} » à $probability %, avec une fiabilité ${prediction.confidenceScore}/100 et $sourceCount source(s) exploitable(s).$scoreText$extra"
+        return "Analyse IA approfondie ${profile.label} : la conclusion provisoire est « ${prediction.selection.cleanAssistantText()} » ($probability %), mais elle est relue avec contexte, forme, dernières infos et facteurs spécifiques au sport. Fiabilité ${prediction.confidenceScore}/100, $sourceCount source(s) exploitable(s).$scoreText$extra"
     }
 
     private fun deepAnalysisLines(
@@ -287,6 +332,288 @@ object LocalAnalysisAssistant {
                 }
             )
         }.distinctBy { it.lineKey() }.take(5)
+    }
+
+    private fun globalReadingLines(
+        prediction: PredictionEntity,
+        profile: SportAiProfile,
+        status: LocalAiStatus,
+        participants: Participants,
+        allEvidence: List<String>,
+        importantSignals: List<String>,
+        missingData: List<String>,
+    ): List<String> {
+        val eventLabel = "${prediction.sportTitle} · ${prediction.competitionName}".cleanAssistantText()
+        val issueLine = allEvidence.bestLine("enjeu", "qualification", "classement", "finale", "maintien")
+        val dynamicLine = allEvidence.bestLine("forme", "dynamique", "hausse", "baisse", "victoire", "défaite", "defaite")
+        val stateLine = importantSignals.firstOrNull { it != "Aucun fait relevé" }
+            ?: allEvidence.bestLine("blessure", "absence", "suspension", "retour", "composition", "fatigue")
+        val fieldLine = terrainOrContextFactor(profile, allEvidence, prediction)
+        return buildList {
+            add("Contexte : $eventLabel, ${participants.firstLabel} face à ${participants.secondLabel}, analyse recalculée le ${formatUpdateTime(prediction.sourceLastUpdate)}.")
+            add("Enjeu : ${issueLine ?: "non confirmé par les sources disponibles ; l’IA ne l’invente pas."}")
+            add("Dynamique récente : ${dynamicLine ?: "tendance à confirmer, car les lignes actuelles ne suffisent pas à qualifier une hausse ou une baisse nette."}")
+            add("État équipes/joueurs : ${stateLine ?: "aucune absence, suspension, retour ou fatigue clairement exploitable dans les données chargées."}")
+            add(fieldLine)
+            if (status == LocalAiStatus.Average || status == LocalAiStatus.Weak || status == LocalAiStatus.WatchOnly) {
+                add("Lecture prudente : ${missingData.firstOrNull()?.cleanAssistantText() ?: "les données contextuelles restent incomplètes."}")
+            }
+        }.distinctBy { it.lineKey() }.take(6)
+    }
+
+    private fun tacticalAnalysisLines(profile: SportAiProfile, evidence: List<String>): List<String> {
+        val joined = evidence.joinToString(" ").lineKey()
+        fun hasAny(vararg words: String) = words.any { joined.contains(it.lineKey()) }
+        fun availableOrMissing(label: String, vararg concepts: String): String =
+            if (hasAny(*concepts)) "$label : signal présent dans les données." else "$label : non confirmé par les sources actuelles."
+        return when (profile.label) {
+            "football" -> listOf(
+                availableOrMissing("Pressing / possession", "pressing", "possession", "corners", "tirs"),
+                availableOrMissing("Transitions et attaque", "transition", "contre", "buts", "xg", "tirs cadrés"),
+                availableOrMissing("Défense et discipline", "encaiss", "clean sheet", "carton", "suspension"),
+                availableOrMissing("Compositions / absences", "composition", "titulaire", "blessure", "absence", "retour"),
+            )
+            "rugby" -> listOf(
+                availableOrMissing("Puissance / conquête", "mêlée", "melee", "touche", "conquête", "occupation"),
+                availableOrMissing("Discipline", "carton", "pénalité", "exclusion", "discipline"),
+                availableOrMissing("Buteurs et points", "buteur", "pénalités", "transformations", "points", "essais"),
+                availableOrMissing("Météo / occupation", "météo", "vent", "pluie", "occupation"),
+            )
+            "tennis" -> listOf(
+                availableOrMissing("Surface", "surface", "gazon", "terre", "dur"),
+                availableOrMissing("Service", "service", "aces", "première balle", "1res balles"),
+                availableOrMissing("Retour / breaks", "retour", "break", "balles de break"),
+                availableOrMissing("Fatigue / H2H", "fatigue", "minutes", "dernier match", "h2h", "face-à-face"),
+            )
+            "cyclisme" -> listOf(
+                availableOrMissing("Profil parcours", "parcours", "montagne", "sprint", "chrono", "dénivelé"),
+                availableOrMissing("Startlist / favoris", "startlist", "favori", "favoris", "coureurs"),
+                availableOrMissing("Rôle des équipes", "leader", "équipier", "rôle", "equipe"),
+                availableOrMissing("Météo / incidents", "météo", "vent", "chute", "abandon"),
+            )
+            "F1", "NASCAR" -> listOf(
+                availableOrMissing("Circuit / grille", "circuit", "grille", "qualification", "qualifications"),
+                availableOrMissing("Rythme long relais", "rythme", "long run", "tour", "écart"),
+                availableOrMissing("Pneus / stratégie", "pneu", "pneus", "stratégie", "arrêt"),
+                availableOrMissing("Fiabilité / météo", "fiabilité", "moteur", "pénalité", "météo"),
+            )
+            "handball" -> listOf(
+                availableOrMissing("Rythme / montée de balle", "rythme", "montée de balle", "buts", "points"),
+                availableOrMissing("Gardiens", "gardien", "arrêts", "arrets"),
+                availableOrMissing("Exclusions / discipline", "exclusion", "carton", "2 minutes", "discipline"),
+                availableOrMissing("Attaque placée", "attaque", "passes", "efficacité"),
+            )
+            "volley" -> listOf(
+                availableOrMissing("Service", "service", "aces"),
+                availableOrMissing("Réception", "réception", "reception"),
+                availableOrMissing("Blocs", "bloc", "blocks", "contres"),
+                availableOrMissing("Efficacité offensive / sets", "attaque", "efficacité", "sets", "set"),
+            )
+            "basket" -> listOf(
+                availableOrMissing("Rythme / adresse", "rythme", "pace", "adresse", "points"),
+                availableOrMissing("Rebonds", "rebonds", "rebound"),
+                availableOrMissing("Rotations / minutes", "rotation", "minutes", "temps de jeu"),
+                availableOrMissing("Fatigue / back-to-back", "fatigue", "back-to-back", "calendrier"),
+            )
+            "baseball" -> listOf(
+                availableOrMissing("Lanceurs", "lanceur", "pitcher", "starter", "strikeout"),
+                availableOrMissing("Bullpen", "bullpen", "relève", "releve"),
+                availableOrMissing("Lineups", "lineup", "composition", "batteur"),
+                availableOrMissing("Runs récents", "runs", "home run", "hits", "coups sûrs"),
+            )
+            "golf" -> listOf(
+                availableOrMissing("Parcours", "parcours", "course", "greens"),
+                availableOrMissing("Météo", "météo", "vent", "pluie"),
+                availableOrMissing("Putting / précision", "putting", "précision", "strokes gained"),
+                availableOrMissing("Historique parcours similaire", "historique", "parcours similaire", "course history"),
+            )
+            "sports de combat" -> listOf(
+                availableOrMissing("Opposition de styles", "style", "striking", "grappling", "lutte"),
+                availableOrMissing("Allonge / distance", "allonge", "reach", "distance"),
+                availableOrMissing("Cardio", "cardio", "fatigue", "rounds"),
+                availableOrMissing("Forme / camp / pesée", "camp", "pesée", "weigh-in", "blessure"),
+            )
+            else -> listOf(
+                "Lecture adaptée : ${profile.focus.joinToString(", ")}.",
+                "Axe confirmé : ${evidence.firstOrNull()?.cleanAssistantText() ?: "aucun axe tactique exploitable pour l’instant."}",
+                "Axe manquant : l’IA garde les données inconnues comme inconnues, sans inventer de style de jeu.",
+            )
+        }.distinctBy { it.lineKey() }
+    }
+
+    private fun latestNewsLines(
+        contextLines: List<String>,
+        lineupLines: List<String>,
+        sourceLines: List<String>,
+    ): List<String> {
+        val news = (contextLines + lineupLines)
+            .map { it.cleanAssistantText() }
+            .filterNot { it.equals("Aucun fait relevé", ignoreCase = true) }
+            .filterNot { it.contains("stats clés surveillées", ignoreCase = true) }
+            .distinctBy { it.lineKey() }
+            .take(6)
+        if (news.isNotEmpty()) return news
+        return listOf(
+            "Aucun fait relevé",
+            "Sources consultées : ${sourceLines.take(4).joinToString(", ").ifBlank { "non listées" }}.",
+        )
+    }
+
+    private fun favoriteFragilityLines(
+        prediction: PredictionEntity,
+        participants: Participants,
+        evidence: List<String>,
+        contradictions: List<String>,
+        missingData: List<String>,
+    ): List<String> {
+        val favorite = selectedParticipant(prediction.selection, participants) ?: "le scénario principal"
+        val directWeakness = participantEvidence(favorite, evidence, baseWeaknessKeywords + listOf("carton", "doute", "questionable"))
+        val blocker = contradictions.firstOrNull { !it.startsWith("Aucune contradiction", ignoreCase = true) }
+            ?: missingData.firstOrNull()
+        return buildList {
+            add("$favorite peut perdre de la valeur si les infos contextuelles contredisent le signal statistique.")
+            add(directWeakness ?: "Point faible confirmé : aucun fait précis trouvé ; l’IA ne transforme donc pas une fragilité supposée en certitude.")
+            add("Risque à surveiller : ${blocker?.cleanAssistantText() ?: "composition, absence, fatigue, météo ou changement tactique non encore confirmé."}")
+        }.distinctBy { it.lineKey() }
+    }
+
+    private fun outsiderCredibilityLines(
+        prediction: PredictionEntity,
+        participants: Participants,
+        evidence: List<String>,
+        scenarioLines: List<String>,
+    ): List<String> {
+        val favorite = selectedParticipant(prediction.selection, participants)
+        val outsider = when (favorite) {
+            participants.firstLabel -> participants.secondLabel
+            participants.secondLabel -> participants.firstLabel
+            else -> participants.secondLabel.ifBlank { participants.firstLabel.ifBlank { "l’outsider" } }
+        }
+        val positiveOutsider = participantEvidence(outsider, evidence, baseStrengthKeywords + listOf("retour", "avantage", "surface", "rythme"))
+        val altScenario = scenarioLines
+            .map { it.cleanAssistantText() }
+            .firstOrNull { line -> outsider.isNotBlank() && line.contains(outsider, ignoreCase = true) }
+        return buildList {
+            add("$outsider peut devenir crédible seulement si ses signaux spécifiques au sport se confirment.")
+            add(positiveOutsider ?: "Signal positif confirmé : aucun fait fort isolé pour $outsider dans les données disponibles.")
+            add("Scénario alternatif : ${altScenario ?: "non établi par le moteur ; garder l’outsider en hypothèse, pas en conclusion inventée."}")
+        }.distinctBy { it.lineKey() }
+    }
+
+    private fun conclusionArgumentLines(
+        prediction: PredictionEntity,
+        status: LocalAiStatus,
+        participants: Participants,
+        scenarioLines: List<String>,
+        missingData: List<String>,
+        contradictions: List<String>,
+    ): List<String> {
+        val selection = prediction.selection.cleanAssistantText().ifBlank { "scénario principal" }
+        val probability = (prediction.consensusProbability * 100).roundToInt().coerceIn(0, 100)
+        val favorite = selectedParticipant(selection, participants)
+        val alternative = scenarioLines.map { it.cleanAssistantText() }
+            .firstOrNull { line -> !line.contains(selection, ignoreCase = true) }
+        val changer = (contradictions.filterNot { it.startsWith("Aucune contradiction", ignoreCase = true) } + missingData)
+            .firstOrNull()
+        return buildList {
+            add("Scénario le plus probable : $selection, mais il doit être lu comme une conclusion argumentée, pas comme un simple pourcentage ($probability %).")
+            add("Scénario alternatif crédible : ${alternative ?: if (favorite != null) "surveiller la réponse de l’adversaire si les dernières infos inversent la lecture." else "aucun scénario alternatif solide disponible."}")
+            add("Niveau de confiance : ${status.label}, fiabilité moteur ${prediction.confidenceScore}/100, accord sources ${prediction.sourceAgreement}/100.")
+            add("Ce qui peut changer l’analyse : ${changer?.cleanAssistantText() ?: "aucun déclencheur majeur identifié, mais compositions/news de dernière minute restent prioritaires."}")
+            add("Recommandation : ${recommendationForStatus(status, prediction.category)}")
+        }
+    }
+
+    private fun sourceTransparencyLines(
+        prediction: PredictionEntity,
+        sourceLines: List<String>,
+        contextLines: List<String>,
+        missingData: List<String>,
+        status: LocalAiStatus,
+    ): List<String> = buildList {
+        val sources = (listOf(prediction.sourceName) + sourceLines).map { it.cleanAssistantText() }.filter { it.isNotBlank() }.distinct()
+        add("Sources utilisées : ${sources.take(6).joinToString(", ").ifBlank { "non listées dans cette fiche" }}.")
+        add("Sources manquantes / limites : ${missingData.take(4).joinToString(" ; ").ifBlank { "aucun manque majeur détecté dans les champs déjà chargés" }}.")
+        add("Dernière mise à jour : ${formatUpdateTime(prediction.sourceLastUpdate)}.")
+        add("Solidité des données : ${status.label}.")
+        add(
+            if (contextLines.isEmpty() || contextLines.all { it.contains("Aucun fait relevé", ignoreCase = true) }) {
+                "Actualités : aucun fait exploitable confirmé ; pas d’invention de blessure, composition, météo ou déclaration."
+            } else {
+                "Actualités : ${contextLines.size} ligne(s) exploitée(s), recoupement évalué via les sources listées."
+            }
+        )
+        add("Architecture : analyse locale sans clé API dans l’APK ; backend IA sécurisé possible plus tard via cloud/Firebase/GitHub Actions.")
+    }
+
+    private fun terrainOrContextFactor(
+        profile: SportAiProfile,
+        evidence: List<String>,
+        prediction: PredictionEntity,
+    ): String {
+        val line = when (profile.label) {
+            "tennis" -> evidence.bestLine("surface", "gazon", "terre", "dur")
+            "cyclisme" -> evidence.bestLine("parcours", "météo", "montagne", "sprint", "chrono")
+            "F1", "NASCAR" -> evidence.bestLine("circuit", "grille", "qualification", "pneus", "météo")
+            "golf" -> evidence.bestLine("parcours", "météo", "putting", "strokes gained")
+            else -> evidence.bestLine("domicile", "extérieur", "terrain", "surface", "déplacement", "meteo", "météo")
+        }
+        val label = when (profile.label) {
+            "tennis" -> "Facteur surface"
+            "cyclisme" -> "Facteur parcours"
+            "F1", "NASCAR" -> "Facteur circuit"
+            "golf" -> "Facteur parcours"
+            else -> "Facteur terrain / déplacement"
+        }
+        val neutralWarning = if (prediction.competitionName.hasAny("coupe du monde", "world cup", "finale", "neutral", "neutre")) {
+            " Attention : compétition ou finale potentiellement sur terrain neutre, donc avantage domicile non supposé sans preuve."
+        } else {
+            ""
+        }
+        return "$label : ${line ?: "non confirmé par les sources disponibles."}$neutralWarning"
+    }
+
+    private fun recommendationForStatus(status: LocalAiStatus, category: String): String = when {
+        status == LocalAiStatus.Solid && category.lineKey().contains("safe") -> "lecture safe possible, en restant dépendante des dernières compositions/news."
+        status == LocalAiStatus.Solid || status == LocalAiStatus.Correct -> "lecture intéressante, mais validation finale après dernières infos."
+        status == LocalAiStatus.Average -> "prudence : données utiles mais pas assez convergentes pour signal fort."
+        status == LocalAiStatus.Weak || status == LocalAiStatus.WatchOnly -> "abstention ou surveillance, car l’analyse manque de confirmations."
+        else -> "ne pas conclure : projection insuffisante."
+    }
+
+    private fun selectedParticipant(selection: String, participants: Participants): String? = when {
+        participants.firstLabel.isNotBlank() && selection.contains(participants.firstLabel, ignoreCase = true) -> participants.firstLabel
+        participants.secondLabel.isNotBlank() && selection.contains(participants.secondLabel, ignoreCase = true) -> participants.secondLabel
+        else -> null
+    }
+
+    private fun participantEvidence(name: String, lines: List<String>, keywords: List<String>): String? {
+        val nameKey = name.lineKey()
+        return lines.map { it.cleanAssistantText() }
+            .firstOrNull { line ->
+                val key = line.lineKey()
+                key.contains(nameKey) && keywords.any { keyword -> key.contains(keyword.lineKey()) }
+            }
+    }
+
+    private fun List<String>.bestLine(vararg concepts: String): String? =
+        map { it.cleanAssistantText() }
+            .firstOrNull { line -> concepts.any { line.matchesConcept(it) || line.contains(it, ignoreCase = true) } }
+
+    private fun formatUpdateTime(timestamp: Long): String =
+        runCatching {
+            Instant.ofEpochMilli(timestamp)
+                .atZone(ZoneId.of("Europe/Paris"))
+                .format(DateTimeFormatter.ofPattern("dd/MM HH:mm", Locale.FRANCE))
+        }.getOrDefault("inconnue")
+
+    private fun conclusionFromLines(lines: List<String>, selection: String, status: LocalAiStatus): String {
+        if (status == LocalAiStatus.Weak || status == LocalAiStatus.WatchOnly || status == LocalAiStatus.Impossible) {
+            return WEAK_DATA_CONCLUSION
+        }
+        val core = lines.firstOrNull()?.substringAfter(":")?.trim()
+        return core?.takeIf { it.isNotBlank() }
+            ?: "Lecture finale : le signal « ${selection.cleanAssistantText()} » est lisible avec les données disponibles."
     }
 
     private fun analysisSupportFactors(profile: SportAiProfile, lines: List<String>): List<String> {
@@ -543,6 +870,9 @@ object LocalAnalysisAssistant {
             normalized.contains("cycling") || normalized.contains("cyclisme") -> "cycling"
             normalized.contains("formula") || normalized == "f1" || normalized.contains("racing") -> "racing"
             normalized.contains("nascar") -> "nascar"
+            normalized.contains("golf") -> "golf"
+            normalized.contains("mma") -> "mma"
+            normalized.contains("boxing") || normalized.contains("boxe") -> "boxing"
             normalized.contains("volley") -> "volleyball"
             normalized.contains("basket") -> "basketball"
             normalized.contains("baseball") -> "baseball"
@@ -683,6 +1013,21 @@ private val sportProfiles = mapOf(
         weaknessKeywords = baseWeaknessKeywords + listOf("runs encaissés", "bullpen", "fatigue lanceur"),
         newsKeywords = baseNewsKeywords + listOf("lanceur", "bullpen", "lineup"),
     ),
+    "golf" to SportAiProfile(
+        label = "golf",
+        focus = listOf("parcours", "météo", "forme récente", "putting", "précision"),
+        liveFocus = listOf("classement", "trous restants", "score", "météo", "putting"),
+        scoreLabel = "Classement / top projeté",
+        requiredStats = listOf("parcours", "météo", "putting", "forme"),
+        requiredLiveStats = listOf("classement", "score", "trous"),
+        actorSectionTitle = "Golfeurs suivis",
+        needsLineup = false,
+        strengthKeywords = baseStrengthKeywords + listOf("putting", "précision", "strokes gained", "top 10"),
+        weaknessKeywords = baseWeaknessKeywords + listOf("cut", "bogey", "vent", "irrégulier"),
+        newsKeywords = baseNewsKeywords + listOf("parcours", "vent", "forfait", "cut"),
+    ),
+    "mma" to combatSportProfile("sports de combat"),
+    "boxing" to combatSportProfile("sports de combat"),
 )
 
 private fun motorSportProfile(label: String) = SportAiProfile(
@@ -711,6 +1056,20 @@ private fun teamIndoorProfile(label: String, scoreWord: String, extraStats: List
     strengthKeywords = baseStrengthKeywords + listOf(scoreWord, "rythme") + extraStats,
     weaknessKeywords = baseWeaknessKeywords + listOf("fatigue", "rotation", "discipline"),
     newsKeywords = baseNewsKeywords + listOf("rotation", "composition"),
+)
+
+private fun combatSportProfile(label: String) = SportAiProfile(
+    label = label,
+    focus = listOf("style", "allonge", "cardio", "grappling/striking", "forme récente"),
+    liveFocus = listOf("round", "volume", "fatigue", "domination", "cartes juges"),
+    scoreLabel = "Méthode / durée probable",
+    requiredStats = listOf("style", "allonge", "cardio", "forme"),
+    requiredLiveStats = listOf("round", "volume", "fatigue"),
+    actorSectionTitle = "Combattants",
+    needsLineup = false,
+    strengthKeywords = baseStrengthKeywords + listOf("ko", "soumission", "grappling", "striking", "cardio", "allonge"),
+    weaknessKeywords = baseWeaknessKeywords + listOf("cut", "poids", "fatigue", "menton", "blessure"),
+    newsKeywords = baseNewsKeywords + listOf("pesée", "weigh-in", "cut", "camp"),
 )
 
 private fun PredictionEntity.participants(): Participants =

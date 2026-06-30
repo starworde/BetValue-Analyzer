@@ -161,7 +161,7 @@ fun PredictionDetailScreen(
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, t(language, "Retour", "Back", "Atrás", "Zurück")) }
-                Text(t(language, "ANALYSE SIMPLE", "SIMPLE ANALYSIS", "ANÁLISIS SIMPLE", "EINFACHE ANALYSE"), style = MaterialTheme.typography.labelLarge, color = Mint)
+                Text(t(language, "ANALYSE IA", "AI ANALYSIS", "ANÁLISIS IA", "KI-ANALYSE"), style = MaterialTheme.typography.labelLarge, color = Mint)
                 Spacer(Modifier.size(48.dp))
             }
         }
@@ -187,7 +187,7 @@ fun PredictionDetailScreen(
         }
 
         item {
-            PredictionSection("Lecture IA", Icons.Outlined.Info, accent) {
+            PredictionSection("Analyse IA approfondie", Icons.Outlined.Info, accent) {
                 LocalAiReadingCard(aiReading, accent)
             }
         }
@@ -1425,7 +1425,9 @@ private fun String.canonicalNameKey(): String =
 
 @Composable
 private fun LocalAiReadingCard(reading: LocalAiReading, accent: Color) {
-    val mainAnalysis = reading.sections.firstOrNull { it.title.startsWith("Analyse IA", ignoreCase = true) }
+    val analyticalSections = reading.sections
+        .filterNot { it.title == "Résumé rapide" }
+        .take(8)
     Surface(shape = RoundedCornerShape(22.dp), color = accent.copy(alpha = 0.10f)) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
             Row(
@@ -1439,15 +1441,22 @@ private fun LocalAiReadingCard(reading: LocalAiReading, accent: Color) {
             Text(cleanDisplayText(reading.summary), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
             Text(cleanDisplayText(reading.sportVocabulary), style = MaterialTheme.typography.labelMedium, color = TextSecondary)
 
-            if (mainAnalysis != null) {
-                LocalAiMiniBlock(mainAnalysis.title, mainAnalysis.lines, accent, maxLines = 5)
+            analyticalSections.forEach { section ->
+                val color = when {
+                    section.title.contains("nouvelles", ignoreCase = true) -> Amber
+                    section.title.contains("favori", ignoreCase = true) -> Danger
+                    section.title.contains("outsider", ignoreCase = true) -> Mint
+                    section.title.contains("transparence", ignoreCase = true) -> Blue
+                    section.title.contains("conclusion", ignoreCase = true) -> accent
+                    else -> accent
+                }
+                val max = when {
+                    section.title.contains("conclusion", ignoreCase = true) -> 5
+                    section.title.contains("transparence", ignoreCase = true) -> 6
+                    else -> 4
+                }
+                LocalAiMiniBlock(section.title, section.lines, color, maxLines = max)
             }
-            LocalAiMiniBlock("Signaux utiles", reading.importantSignals, Mint)
-            val pointsToCheck = (reading.contradictions + reading.missingData)
-                .filterNot { it.startsWith("Aucune contradiction", ignoreCase = true) || it.startsWith("Aucun manque", ignoreCase = true) }
-                .ifEmpty { listOf(NO_RECENT_FACT_LINE) }
-            LocalAiMiniBlock("À vérifier", pointsToCheck, Amber)
-            LocalAiMiniBlock("Fiabilité", reading.reliability.take(3), Blue)
             Text(cleanDisplayText(reading.conclusion), style = MaterialTheme.typography.bodyMedium, color = accent, fontWeight = FontWeight.Bold)
         }
     }

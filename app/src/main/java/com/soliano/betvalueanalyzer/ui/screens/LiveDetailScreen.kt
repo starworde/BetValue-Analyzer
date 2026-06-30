@@ -130,7 +130,7 @@ fun LiveDetailScreen(
             }
         }
         item {
-            LiveDetailSection("Lecture IA live", Icons.Outlined.Info, accent) {
+            LiveDetailSection("Analyse IA live approfondie", Icons.Outlined.Info, accent) {
                 LiveLocalAiReadingCard(aiReading, accent)
             }
         }
@@ -174,7 +174,9 @@ fun LiveDetailScreen(
 
 @Composable
 private fun LiveLocalAiReadingCard(reading: LocalAiReading, accent: Color) {
-    val mainAnalysis = reading.sections.firstOrNull { it.title.startsWith("Analyse IA", ignoreCase = true) }
+    val analyticalSections = reading.sections
+        .filterNot { it.title == "Résumé rapide" }
+        .take(6)
     Surface(shape = RoundedCornerShape(22.dp), color = accent.copy(alpha = 0.10f), border = BorderStroke(1.dp, accent.copy(alpha = 0.18f))) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -183,15 +185,24 @@ private fun LiveLocalAiReadingCard(reading: LocalAiReading, accent: Color) {
             }
             Text(cleanDisplayText(reading.summary), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
             Text(cleanDisplayText(reading.sportVocabulary), style = MaterialTheme.typography.labelMedium, color = TextSecondary)
-            if (mainAnalysis != null) {
-                LiveLocalAiBlock(mainAnalysis.title, mainAnalysis.lines, accent, maxLines = 5)
+
+            analyticalSections.forEach { section ->
+                val color = when {
+                    section.title.contains("stats", ignoreCase = true) -> Blue
+                    section.title.contains("scénario", ignoreCase = true) -> Mint
+                    section.title.contains("source", ignoreCase = true) -> Blue
+                    section.title.contains("favori", ignoreCase = true) -> Amber
+                    section.title.contains("outsider", ignoreCase = true) -> Mint
+                    else -> accent
+                }
+                val max = when {
+                    section.title.contains("Analyse IA", ignoreCase = true) -> 5
+                    section.title.contains("source", ignoreCase = true) -> 5
+                    else -> 4
+                }
+                LiveLocalAiBlock(section.title, section.lines, color, maxLines = max)
             }
-            LiveLocalAiBlock("Signaux utiles", reading.importantSignals, Mint)
-            val pointsToCheck = (reading.contradictions + reading.missingData)
-                .filterNot { it.startsWith("Aucune contradiction", ignoreCase = true) || it.startsWith("Aucun manque", ignoreCase = true) }
-                .ifEmpty { listOf("Aucun fait relevé") }
-            LiveLocalAiBlock("À vérifier", pointsToCheck, Amber)
-            LiveLocalAiBlock("Fiabilité", reading.reliability.take(3), Blue)
+
             Text(cleanDisplayText(reading.conclusion), style = MaterialTheme.typography.bodyMedium, color = accent, fontWeight = FontWeight.Bold)
         }
     }
