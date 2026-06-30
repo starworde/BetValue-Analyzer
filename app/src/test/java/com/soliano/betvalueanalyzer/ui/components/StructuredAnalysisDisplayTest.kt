@@ -298,7 +298,7 @@ class StructuredAnalysisDisplayTest {
         awayTeam = awayTeam,
         market = "Résultat final",
         selection = selection,
-        betclicOdds = 2.1,
+        referenceOdds = 2.1,
         impliedProbability = 0.47,
         consensusProbability = 0.54,
         valueEdge = 0.07,

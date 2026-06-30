@@ -20,6 +20,7 @@ class ProductCleanupGuardTest {
             "automaticValueBets",
             "automaticBets",
             "valueBets",
+            "refreshOdds",
             "Betclic",
             "Non exposé à l’app",
         )
@@ -38,6 +39,32 @@ class ProductCleanupGuardTest {
         assertTrue("SportsSyncWorker.kt doit exister", worker.exists())
         assertTrue(repository.readText().contains("class SportsAnalysisRepository"))
         assertTrue(worker.readText().contains("class SportsSyncWorker"))
+    }
+
+    @Test
+    fun `removed sports are not exposed by catalog or ui screens`() {
+        val uiText = mainKotlinFiles()
+            .filter { file ->
+                val path = file.invariantSeparatorsPath
+                path.contains("/ui/") || path.endsWith("domain/SportsCatalog.kt")
+            }
+            .joinToString("\n") { it.readText() }
+            .lowercase()
+
+        val forbiddenVisibleNames = listOf(
+            "snooker",
+            "football australien",
+            "fléchettes",
+            "flechettes",
+            "darts",
+            "cricket",
+            "hockey sur gazon",
+            "field hockey",
+        )
+
+        forbiddenVisibleNames.forEach { token ->
+            assertFalse("Sport supprimé encore visible: $token", uiText.contains(token))
+        }
     }
 
     private fun mainKotlinFiles(): List<File> =

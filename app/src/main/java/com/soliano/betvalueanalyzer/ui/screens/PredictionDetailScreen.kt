@@ -76,6 +76,7 @@ import com.soliano.betvalueanalyzer.ui.components.displayPredictionTeams
 import com.soliano.betvalueanalyzer.ui.components.displayTeamName
 import com.soliano.betvalueanalyzer.ui.components.formatDate
 import com.soliano.betvalueanalyzer.ui.components.formatPercent
+import com.soliano.betvalueanalyzer.ui.components.predictionCategoryKey
 import com.soliano.betvalueanalyzer.ui.components.predictionCategoryLabel
 import com.soliano.betvalueanalyzer.ui.components.structuredAnalysisDossier
 import com.soliano.betvalueanalyzer.ui.theme.Amber
@@ -418,7 +419,7 @@ private fun isUsableTennisPlayerName(value: String): Boolean {
 private fun tennisParticipantBilanDigests(prediction: PredictionEntity): List<ParticipantDigest> =
     tennisPlayerNames(prediction).map { player ->
         val lines = tennisStatLinesForPlayer(prediction, player, includeProbabilityNotes = false)
-            .ifEmpty { listOf("Aucune statistique joueur trouvée dans les sources actuelles.") }
+            .ifEmpty { listOf("Aucune statistique joueur trouvée.") }
         ParticipantDigest(
             name = player,
             lines = compactUiLines(lines, max = 6),
@@ -1479,9 +1480,14 @@ private fun PronosticExpressCard(
     prediction: PredictionEntity,
     accent: Color,
 ) {
+    val nonActionable = prediction.isNonActionableAnalysis()
+    val title = if (nonActionable) "À surveiller" else "À jouer"
+    val chanceValue = if (nonActionable) "Non chiffré" else formatPercent(prediction.consensusProbability)
+    val chanceLabel = if (nonActionable) "Statut" else "Chance"
+    val expectedLabel = prediction.expectedStateLabel(nonActionable)
     Surface(shape = RoundedCornerShape(22.dp), color = accent.copy(alpha = 0.13f)) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Text("À jouer", style = MaterialTheme.typography.labelLarge, color = accent, fontWeight = FontWeight.Black)
+            Text(title, style = MaterialTheme.typography.labelLarge, color = accent, fontWeight = FontWeight.Black)
             Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f)) {
                 Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                     Text(
@@ -1496,7 +1502,7 @@ private fun PronosticExpressCard(
                 }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                ExpressMetric("Chance", formatPercent(prediction.consensusProbability), accent, Modifier.weight(1f))
+                ExpressMetric(chanceLabel, chanceValue, accent, Modifier.weight(1f))
                 ExpressMetric("Confiance", "${prediction.confidenceScore}/100", Blue, Modifier.weight(1f))
             }
             if (prediction.expectedScore.isNotBlank()) {
@@ -1506,7 +1512,7 @@ private fun PronosticExpressCard(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text("Score final", color = TextSecondary, style = MaterialTheme.typography.labelMedium)
+                        Text(expectedLabel, color = TextSecondary, style = MaterialTheme.typography.labelMedium)
                         Text(
                             cleanDisplayText(prediction.expectedScore),
                             color = accent,
@@ -1519,6 +1525,33 @@ private fun PronosticExpressCard(
                 }
             }
         }
+    }
+}
+
+private fun PredictionEntity.isNonActionableAnalysis(): Boolean {
+    val categoryKey = predictionCategoryKey(category)
+    val text = cleanDisplayText("$category $market $selection $expectedScore").lowercase(Locale.FRANCE)
+    return categoryKey == "exotique" && listOf(
+        "données faibles",
+        "donnees faibles",
+        "données à compléter",
+        "donnees a completer",
+        "surveillance",
+        "projection impossible",
+        "attendre",
+        "pas de ",
+        "non validée",
+        "non validee",
+    ).any { it in text }
+}
+
+private fun PredictionEntity.expectedStateLabel(nonActionable: Boolean): String {
+    if (nonActionable) return "État attendu"
+    return when (sportKey.substringBefore('/')) {
+        "tennis" -> "Format probable"
+        "cycling", "racing", "nascar", "golf", "athletics" -> "Projection / état"
+        "rugby", "basketball", "football", "handball", "volleyball", "baseball", "hockey" -> "Score / total"
+        else -> "Score final"
     }
 }
 

@@ -64,7 +64,7 @@ class LiveWindowPolicyTest {
     @Test
     fun `race with final top three becomes confirmed result`() {
         val now = 1_800_000_000_000L
-        val racingDuration = 2L * 60L * 60L * 1000L
+        val racingDuration = 3L * 60L * 60L * 1000L
 
         val state = LiveWindowPolicy.liveState(
             event(
@@ -82,11 +82,17 @@ class LiveWindowPolicyTest {
     }
 
     @Test
-    fun `live event is always visible`() {
+    fun `live event is visible during plausible duration and archived after stale window`() {
         val now = 1_800_000_000_000L
         assertTrue(
             LiveWindowPolicy.shouldShow(
-                event(commenceTime = now - 6L * 60L * 60L * 1000L, isLive = true),
+                event(commenceTime = now - 60L * 60L * 1000L, isLive = true),
+                now,
+            )
+        )
+        assertFalse(
+            LiveWindowPolicy.shouldShow(
+                event(commenceTime = now - 4L * 60L * 60L * 1000L, isLive = true),
                 now,
             )
         )

@@ -163,7 +163,7 @@ fun BetValueApp(viewModel: MainViewModel) {
                 language = language,
                 onOpen = viewModel::analyzePrediction,
                 onOpenEvent = viewModel::analyzeEvent,
-                onRefresh = viewModel::refreshOdds,
+                onRefresh = viewModel::refreshSportsData,
             )
             Destination.Sports -> SportsScreen(
                 state = state,
@@ -171,7 +171,7 @@ fun BetValueApp(viewModel: MainViewModel) {
                 language = language,
                 onOpen = viewModel::analyzePrediction,
                 onOpenEvent = viewModel::analyzeEvent,
-                onRefresh = viewModel::refreshOdds,
+                onRefresh = viewModel::refreshSportsData,
                 onPreloadSport = viewModel::preloadSportAnalyses,
                 onToggleSportFavorite = viewModel::setFavoriteSport,
                 onToggleCompetitionFavorite = viewModel::setFavoriteCompetition,
@@ -190,7 +190,7 @@ fun BetValueApp(viewModel: MainViewModel) {
                 onToggleAutoRefresh = viewModel::setAutoRefresh,
                 onToggleCloudCollaborative = viewModel::setCloudCollaborativeEnabled,
                 onLanguageChange = viewModel::setAppLanguage,
-                onRefresh = viewModel::refreshOdds,
+                onRefresh = viewModel::refreshSportsData,
                 onForceCloudSync = viewModel::forceCloudSync,
                 onExportCloudDiagnostic = viewModel::exportCloudDiagnostic,
             )

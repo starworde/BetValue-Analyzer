@@ -93,7 +93,7 @@ object LocalAnalysisAssistant {
             missingData = missingData,
             contradictions = contradictions,
         )
-        val latestNews = latestNewsLines(contextLines, lineupLines, sourceLines)
+        val latestNews = latestNewsLines(contextLines, lineupLines)
         val globalLines = globalReadingLines(
             prediction = prediction,
             profile = profile,
@@ -353,7 +353,7 @@ object LocalAnalysisAssistant {
             add("Contexte : $eventLabel, ${participants.firstLabel} face à ${participants.secondLabel}, analyse recalculée le ${formatUpdateTime(prediction.sourceLastUpdate)}.")
             add("Enjeu : ${issueLine ?: "non confirmé par les sources disponibles ; l’IA ne l’invente pas."}")
             add("Dynamique récente : ${dynamicLine ?: "tendance à confirmer, car les lignes actuelles ne suffisent pas à qualifier une hausse ou une baisse nette."}")
-            add("État équipes/joueurs : ${stateLine ?: "aucune absence, suspension, retour ou fatigue clairement exploitable dans les données chargées."}")
+            add("État équipes/joueurs : ${stateLine ?: "Aucun fait relevé"}")
             add(fieldLine)
             if (status == LocalAiStatus.Average || status == LocalAiStatus.Weak || status == LocalAiStatus.WatchOnly) {
                 add("Lecture prudente : ${missingData.firstOrNull()?.cleanAssistantText() ?: "les données contextuelles restent incomplètes."}")
@@ -444,7 +444,6 @@ object LocalAnalysisAssistant {
     private fun latestNewsLines(
         contextLines: List<String>,
         lineupLines: List<String>,
-        sourceLines: List<String>,
     ): List<String> {
         val news = (contextLines + lineupLines)
             .map { it.cleanAssistantText() }
@@ -453,10 +452,7 @@ object LocalAnalysisAssistant {
             .distinctBy { it.lineKey() }
             .take(6)
         if (news.isNotEmpty()) return news
-        return listOf(
-            "Aucun fait relevé",
-            "Sources consultées : ${sourceLines.take(4).joinToString(", ").ifBlank { "non listées" }}.",
-        )
+        return listOf("Aucun fait relevé")
     }
 
     private fun favoriteFragilityLines(

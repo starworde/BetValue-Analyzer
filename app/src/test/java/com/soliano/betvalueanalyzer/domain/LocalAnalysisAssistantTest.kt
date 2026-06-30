@@ -218,7 +218,7 @@ class LocalAnalysisAssistantTest {
         awayTeam = awayTeam,
         market = market,
         selection = selection,
-        betclicOdds = 0.0,
+        referenceOdds = 0.0,
         impliedProbability = 0.0,
         consensusProbability = 0.63,
         valueEdge = 0.0,

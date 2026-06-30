@@ -18,22 +18,33 @@ class SettingsScreenDiagnosticsTest {
                 lastCloudUploadEpoch = 1_800_000_000_000L,
                 cloudJobStatus = "success",
                 cloudJobFinishedEpoch = 1_800_000_000_000L,
+                cloudJobConfiguredSports = setOf("soccer", "volleyball", "tennis"),
+                cloudJobSportsWithoutEvents = setOf("boxing"),
+                cloudJobEventsBySportSummary = "soccer:120, volleyball:24, tennis:80",
                 cloudJobEventsFound = 2_148,
                 cloudJobResultsPrepared = 900,
                 cloudJobResultsWritten = 860,
                 cloudJobRemovedSportsDeleted = 12,
                 cloudJobSourcesChecked = 18,
+                cloudJobSourceErrors = 1,
+                cloudJobSourceErrorDetails = "UCI WorldTour : HTTP 503",
             ),
         )
 
         val rows = sourceHealthRows(state, "fr")
         val github = rows.single { it.label == "GitHub Actions" }.value
         val firestoreCleanup = rows.single { it.label == "Firestore quota/nettoyage" }.value
+        val responding = rows.single { it.label == "Sources cloud qui répondent" }.value
+        val empty = rows.single { it.label == "Sources cloud vides" }.value
+        val errors = rows.single { it.label == "Sources cloud en erreur" }.value
 
         assertTrue(github.contains("success", ignoreCase = true))
         assertTrue(github.contains("860/900"))
         assertTrue(github.contains("2148") || github.contains("2 148"))
         assertTrue(firestoreCleanup.contains("OK"))
+        assertTrue(responding.contains("volleyball"))
+        assertTrue(empty.contains("boxing"))
+        assertTrue(errors.contains("UCI WorldTour"))
     }
 
     @Test
@@ -132,7 +143,7 @@ class SettingsScreenDiagnosticsTest {
         awayTeam = "B",
         market = "Marché",
         selection = "A",
-        betclicOdds = 1.0,
+        referenceOdds = 1.0,
         impliedProbability = 0.6,
         consensusProbability = 0.6,
         valueEdge = 0.0,

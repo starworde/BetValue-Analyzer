@@ -33,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.soliano.betvalueanalyzer.BuildConfig
 import com.soliano.betvalueanalyzer.data.UserSettings
+import com.soliano.betvalueanalyzer.domain.RemovedSports
 import com.soliano.betvalueanalyzer.domain.SportIntelligenceCatalog
 import com.soliano.betvalueanalyzer.domain.SportsCatalog
 import com.soliano.betvalueanalyzer.ui.AppUiState
@@ -369,6 +370,24 @@ internal fun sourceHealthRows(state: AppUiState, language: String): List<SourceH
             if (firestoreJobError.isBlank() && state.settings.cloudJobStatus.isNotBlank()) Mint else if (firestoreJobError.isBlank()) TextSecondary else Danger,
         ),
         SourceHealthRow(
+            t(language, "Sources cloud qui répondent", "Cloud sources responding", "Fuentes cloud que responden", "Antwortende Cloud-Quellen"),
+            cloudSourcesRespondingLabel(state.settings, language),
+            if (state.settings.cloudJobEventsBySportSummary.isBlank()) TextSecondary else Mint,
+        ),
+        SourceHealthRow(
+            t(language, "Sources cloud vides", "Empty cloud sources", "Fuentes cloud vacías", "Leere Cloud-Quellen"),
+            cloudEmptySourcesLabel(state.settings, language),
+            if (state.settings.cloudJobSportsWithoutEvents.isEmpty()) Mint else Blue,
+        ),
+        SourceHealthRow(
+            t(language, "Sources cloud en erreur", "Cloud source errors", "Errores de fuentes cloud", "Cloud-Quellenfehler"),
+            cleanDisplayText(state.settings.cloudJobSourceErrorDetails).ifBlank {
+                if (state.settings.cloudJobSourceErrors > 0) "${state.settings.cloudJobSourceErrors} erreur(s)"
+                else t(language, "Aucune erreur source", "No source error", "Sin error de fuente", "Kein Quellenfehler")
+            },
+            if (state.settings.cloudJobSourceErrors > 0 || state.settings.cloudJobSourceErrorDetails.isNotBlank()) Danger else Mint,
+        ),
+        SourceHealthRow(
             t(language, "Sources actives", "Active sources", "Fuentes activas", "Aktive Quellen"),
             if (sourceNames.isEmpty()) t(language, "Aucune source chargée", "No source loaded", "Ninguna fuente cargada", "Keine Quelle geladen")
             else "${sourceNames.size} · ${sourceNames.take(4).joinToString(", ")}",
@@ -406,6 +425,24 @@ internal fun sourceHealthRows(state: AppUiState, language: String): List<SourceH
             if (cloudError.isBlank()) Mint else Danger,
         ),
     ).distinctBy { it.label }
+}
+
+private fun cloudSourcesRespondingLabel(settings: UserSettings, language: String): String {
+    val summary = cleanDisplayText(settings.cloudJobEventsBySportSummary)
+    if (summary.isNotBlank()) return summary
+    val configured = settings.cloudJobConfiguredSports
+        .filterNot(RemovedSports::isRemovedSportKey)
+        .sorted()
+    return configured.takeIf { it.isNotEmpty() }?.joinToString(", ")
+        ?: t(language, "Pas encore confirmé", "Not confirmed yet", "Aún no confirmado", "Noch nicht bestätigt")
+}
+
+private fun cloudEmptySourcesLabel(settings: UserSettings, language: String): String {
+    val emptySports = settings.cloudJobSportsWithoutEvents
+        .filterNot(RemovedSports::isRemovedSportKey)
+        .sorted()
+    return emptySports.takeIf { it.isNotEmpty() }?.joinToString(", ")
+        ?: t(language, "Aucune source vide signalée", "No empty source reported", "Ninguna fuente vacía señalada", "Keine leere Quelle gemeldet")
 }
 
 private fun sourceHealthSportRows(state: AppUiState): List<SourceHealthRow> =

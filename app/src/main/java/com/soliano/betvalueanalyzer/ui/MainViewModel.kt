@@ -72,6 +72,7 @@ data class AppUiState(
     val reliableAnalyses: List<PredictionEntity>
         get() = predictions.filter { predictionCategoryKey(it.category) in setOf("safe", "mitige") }
             .sortedByDescending { it.confidenceScore }
+            .distinctBy { it.homePredictionIdentity() }
 
     val topPredictions: List<PredictionEntity>
         get() = predictions.sortedWith(
@@ -80,17 +81,19 @@ data class AppUiState(
                 .thenByDescending { predictionCategoryKey(it.category) == "mitige" }
                 .thenByDescending { it.confidenceScore }
                 .thenBy { it.commenceTime }
-        )
+        ).distinctBy { it.homePredictionIdentity() }
 
     val favoriteUpcomingEvents: List<UpcomingEventEntity>
         get() = upcomingEvents.filter { event ->
             event.sportKey in settings.favoriteSports || event.competitionKey in settings.favoriteCompetitions
-        }.sortedBy { it.commenceTime }
+        }.distinctBy { it.homeDisplayIdentity() }
+            .sortedBy { it.commenceTime }
 
     val favoriteCompetitionUpcomingEvents: List<UpcomingEventEntity>
         get() = upcomingEvents.filter { event ->
             event.competitionKey in settings.favoriteCompetitions
-        }.sortedWith(
+        }.distinctBy { it.homeDisplayIdentity() }
+            .sortedWith(
             compareBy<UpcomingEventEntity> { it.commenceTime }
                 .thenBy { it.sportTitle }
                 .thenBy { it.competitionName }
@@ -99,7 +102,8 @@ data class AppUiState(
     val favoriteSportUpcomingEvents: List<UpcomingEventEntity>
         get() = upcomingEvents.filter { event ->
             event.sportKey in settings.favoriteSports && event.competitionKey !in settings.favoriteCompetitions
-        }.sortedWith(
+        }.distinctBy { it.homeDisplayIdentity() }
+            .sortedWith(
             compareBy<UpcomingEventEntity> { it.commenceTime }
                 .thenBy { it.sportTitle }
                 .thenBy { it.competitionName }
@@ -113,6 +117,30 @@ data class AppUiState(
         return sport in settings.favoriteSports ||
             competitionFavoriteKey(sport, prediction.competitionName) in settings.favoriteCompetitions
     }
+}
+
+private fun UpcomingEventEntity.homeDisplayIdentity(): String {
+    val participantKey = normalizedPairParticipants(participantA, participantB)
+        .ifBlank { eventName.displayKeyPart() }
+        .ifBlank { id.displayKeyPart() }
+    return listOf(
+        sportKey.substringBefore('/').displayKeyPart(),
+        competitionName.displayKeyPart(),
+        commenceTime.displayDayBucket().toString(),
+        participantKey,
+    ).joinToString("|")
+}
+
+private fun PredictionEntity.homePredictionIdentity(): String {
+    val participantKey = normalizedPairParticipants(homeTeam, awayTeam)
+        .ifBlank { selection.displayKeyPart() }
+        .ifBlank { eventId.displayKeyPart() }
+    return listOf(
+        sportKey.substringBefore('/').displayKeyPart(),
+        competitionName.displayKeyPart(),
+        commenceTime.displayDayBucket().toString(),
+        participantKey,
+    ).joinToString("|")
 }
 
 class MainViewModel(
@@ -193,7 +221,7 @@ class MainViewModel(
             if (settings.cloudCollaborativeEnabled) {
                 syncCloudInBackground(showMessage = false, publishLocal = false, fetchCloud = true)
             }
-            if (settings.autoRefresh) refreshOdds(showMessage = false)
+            if (settings.autoRefresh) refreshSportsData(showMessage = false)
         }
         viewModelScope.launch {
             while (true) {
@@ -210,7 +238,7 @@ class MainViewModel(
                     5 * 60 * 1000L
                 }
                 delay(delayMs)
-                if (preferencesRepository.settings.first().autoRefresh) refreshOdds(showMessage = false)
+                if (preferencesRepository.settings.first().autoRefresh) refreshSportsData(showMessage = false)
             }
         }
         viewModelScope.launch(Dispatchers.Default) {
@@ -231,7 +259,7 @@ class MainViewModel(
 
     fun confirmAge() = viewModelScope.launch { preferencesRepository.confirmAge() }
 
-    fun refreshOdds(showMessage: Boolean = true, force: Boolean = false) {
+    fun refreshSportsData(showMessage: Boolean = true, force: Boolean = false) {
         if (syncStatus.value == SyncStatus.Syncing) return
         syncStatus.value = SyncStatus.Syncing
         viewModelScope.launch {
@@ -277,7 +305,7 @@ class MainViewModel(
 
     fun setAutoRefresh(value: Boolean) = viewModelScope.launch {
         preferencesRepository.setAutoRefresh(value)
-        if (value) refreshOdds(false)
+        if (value) refreshSportsData(false)
     }
 
     fun setCloudCollaborativeEnabled(value: Boolean) = viewModelScope.launch {
@@ -327,12 +355,12 @@ class MainViewModel(
 
     fun setFavoriteSport(key: String, favorite: Boolean) = viewModelScope.launch {
         preferencesRepository.setFavoriteSport(key, favorite)
-        refreshOdds(showMessage = false, force = true)
+        refreshSportsData(showMessage = false, force = true)
     }
 
     fun setFavoriteCompetition(key: String, favorite: Boolean) = viewModelScope.launch {
         preferencesRepository.setFavoriteCompetition(key, favorite)
-        refreshOdds(showMessage = false, force = true)
+        refreshSportsData(showMessage = false, force = true)
     }
 
     fun addCustomSport(name: String) = viewModelScope.launch {

@@ -26,6 +26,7 @@ import com.soliano.betvalueanalyzer.domain.RemovedSports
 import com.soliano.betvalueanalyzer.domain.PublicPredictionEngine
 import com.soliano.betvalueanalyzer.domain.LiveEventSnapshot
 import com.soliano.betvalueanalyzer.domain.LiveProjectionEngine
+import com.soliano.betvalueanalyzer.domain.LiveEventStateResolver
 import com.soliano.betvalueanalyzer.domain.LiveWindowPolicy
 import com.soliano.betvalueanalyzer.domain.MatchContextSignal
 import com.soliano.betvalueanalyzer.domain.TeamProfileRequest
@@ -400,7 +401,7 @@ class SportsAnalysisRepository(
             awayTeam = "Peloton",
             market = "Analyse course cycliste - surveillance",
             selection = "Surveiller startlist officielle, favoris et parcours",
-            betclicOdds = 1.0,
+            referenceOdds = 1.0,
             impliedProbability = 0.50,
             consensusProbability = 0.50,
             valueEdge = 0.0,
@@ -752,7 +753,8 @@ class SportsAnalysisRepository(
         now: Long,
         syncTime: Long,
     ): LiveEventEntity? {
-        if (!withinLiveMonitorWindow(commenceTime, now)) return null
+        if (!withinLiveMonitorWindow(commenceTime, now, sportKey)) return null
+        val monitorState = scheduleLiveMonitorState(sportKey, commenceTime, now)
         val snapshot = LiveEventSnapshot(
             sportKey = sportKey,
             sportTitle = sportTitle,
@@ -762,9 +764,9 @@ class SportsAnalysisRepository(
             awayName = awayTeam.ifBlank { competitionName },
             homeScore = null,
             awayScore = null,
-            statusState = "pre",
-            statusDescription = liveMonitorStatus(commenceTime, now),
-            displayClock = "",
+            statusState = monitorState.statusState,
+            statusDescription = monitorState.description,
+            displayClock = monitorState.displayClock,
             period = null,
         )
         val projection = LiveProjectionEngine.analyze(snapshot)
@@ -777,7 +779,7 @@ class SportsAnalysisRepository(
             add("Recalcul automatique dès qu'un score, statut ou incident public apparaît")
         }.distinct()
         val statLines = buildList {
-            add("Statut live : ${liveMonitorStatus(commenceTime, now)}")
+            add("Statut live : ${monitorState.description}")
             add("Signal pré-match repris : $selection · confiance $confidenceScore/100")
             add("Probabilité pré-match : ${(consensusProbability * 100).toInt()} % · risque $riskLevel")
             addAll(projection.statSummary)
@@ -800,11 +802,11 @@ class SportsAnalysisRepository(
             awayName = awayTeam.ifBlank { competitionName },
             homeScore = null,
             awayScore = null,
-            statusState = "pre",
-            statusDescription = liveMonitorStatus(commenceTime, now),
-            displayClock = "",
+            statusState = monitorState.statusState,
+            statusDescription = monitorState.description,
+            displayClock = monitorState.displayClock,
             period = null,
-            isLive = false,
+            isLive = monitorState.isLive,
             sourceName = "Surveillance live · pré-match",
             sourceDetails = sourceLines.joinToString("\n"),
             lastUpdate = syncTime,
@@ -817,7 +819,8 @@ class SportsAnalysisRepository(
         now: Long,
         syncTime: Long,
     ): LiveEventEntity? {
-        if (!withinLiveMonitorWindow(commenceTime, now)) return null
+        if (!withinLiveMonitorWindow(commenceTime, now, sportKey)) return null
+        val monitorState = scheduleLiveMonitorState(sportKey, commenceTime, now)
         val home = participantA.ifBlank { eventName }
         val away = participantB.ifBlank { competitionName.ifBlank { sportTitle } }
         val snapshot = LiveEventSnapshot(
@@ -829,9 +832,9 @@ class SportsAnalysisRepository(
             awayName = away,
             homeScore = null,
             awayScore = null,
-            statusState = "pre",
-            statusDescription = liveMonitorStatus(commenceTime, now),
-            displayClock = "",
+            statusState = monitorState.statusState,
+            statusDescription = monitorState.description,
+            displayClock = monitorState.displayClock,
             period = null,
         )
         val projection = LiveProjectionEngine.analyze(snapshot)
@@ -842,7 +845,7 @@ class SportsAnalysisRepository(
             add("Recalcul dès publication score/statut/startlist/classement")
         }.distinct()
         val statLines = buildList {
-            add("Statut live : ${liveMonitorStatus(commenceTime, now)}")
+            add("Statut live : ${monitorState.description}")
             add("Événement calendrier détecté : $eventName")
             addAll(projection.statSummary)
         }.distinct()
@@ -857,11 +860,11 @@ class SportsAnalysisRepository(
             awayName = away,
             homeScore = null,
             awayScore = null,
-            statusState = "pre",
-            statusDescription = liveMonitorStatus(commenceTime, now),
-            displayClock = "",
+            statusState = monitorState.statusState,
+            statusDescription = monitorState.description,
+            displayClock = monitorState.displayClock,
             period = null,
-            isLive = false,
+            isLive = monitorState.isLive,
             sourceName = "Surveillance live · calendrier",
             sourceDetails = sourceLines.joinToString("\n"),
             lastUpdate = syncTime,
@@ -870,10 +873,62 @@ class SportsAnalysisRepository(
         )
     }
 
+    private data class ScheduleLiveMonitorState(
+        val statusState: String,
+        val description: String,
+        val displayClock: String,
+        val isLive: Boolean,
+    )
+
     private fun withinLiveMonitorWindow(
         commenceTime: Long,
         now: Long,
-    ): Boolean = LiveWindowPolicy.startsSoon(commenceTime, now)
+        sportKey: String,
+    ): Boolean {
+        val sport = sportKey.substringBefore('/').ifBlank { "soccer" }
+        val estimatedEnd = commenceTime + LiveEventStateResolver.estimatedDurationMs(sport)
+        return LiveWindowPolicy.startsSoon(commenceTime, now) ||
+            (commenceTime <= now && now <= estimatedEnd) ||
+            LiveWindowPolicy.finishedRecentlyBySchedule(sport, commenceTime, now)
+    }
+
+    private fun scheduleLiveMonitorState(
+        sportKey: String,
+        commenceTime: Long,
+        now: Long,
+    ): ScheduleLiveMonitorState {
+        val sport = sportKey.substringBefore('/').ifBlank { "soccer" }
+        val estimatedEnd = commenceTime + LiveEventStateResolver.estimatedDurationMs(sport)
+        val minutesBefore = ((commenceTime - now) / 60_000L).coerceAtLeast(1L)
+        val minutesElapsed = ((now - commenceTime) / 60_000L).coerceAtLeast(0L)
+        val minutesAfterEnd = ((now - estimatedEnd) / 60_000L).coerceAtLeast(0L)
+        return when {
+            LiveWindowPolicy.startsSoon(commenceTime, now) -> ScheduleLiveMonitorState(
+                statusState = "pre",
+                description = "Départ proche · dans ${minutesBefore} min",
+                displayClock = "",
+                isLive = false,
+            )
+            commenceTime <= now && now <= estimatedEnd -> ScheduleLiveMonitorState(
+                statusState = "in",
+                description = "En cours probable · score/statut public en attente",
+                displayClock = "${minutesElapsed} min depuis le départ",
+                isLive = true,
+            )
+            estimatedEnd in (now - LiveWindowPolicy.RECENT_FINISH_WINDOW_MS)..now -> ScheduleLiveMonitorState(
+                statusState = "post",
+                description = "Terminé probable · résultat public en attente",
+                displayClock = "${minutesAfterEnd} min après fin estimée",
+                isLive = false,
+            )
+            else -> ScheduleLiveMonitorState(
+                statusState = "post",
+                description = "Hors fenêtre live",
+                displayClock = "",
+                isLive = false,
+            )
+        }
+    }
 
     private fun curatedMajorCalendarEvents(
         now: Long,
@@ -908,8 +963,9 @@ class SportsAnalysisRepository(
         syncTime: Long,
     ): List<LiveEventEntity> = CURATED_MAJOR_EVENTS
         .asSequence()
-        .filter { event -> withinLiveMonitorWindow(event.commenceTime, now) }
+        .filter { event -> withinLiveMonitorWindow(event.commenceTime, now, event.sportKey) }
         .map { event ->
+            val monitorState = scheduleLiveMonitorState(event.sportKey, event.commenceTime, now)
             val snapshot = LiveEventSnapshot(
                 sportKey = event.sportKey,
                 sportTitle = event.sportTitle,
@@ -919,9 +975,9 @@ class SportsAnalysisRepository(
                 awayName = event.awayName,
                 homeScore = null,
                 awayScore = null,
-                statusState = "pre",
-                statusDescription = liveMonitorStatus(event.commenceTime, now),
-                displayClock = "",
+                statusState = monitorState.statusState,
+                statusDescription = monitorState.description,
+                displayClock = monitorState.displayClock,
                 period = null,
             )
             val projection = LiveProjectionEngine.analyze(snapshot)
@@ -936,11 +992,11 @@ class SportsAnalysisRepository(
                 awayName = event.awayName,
                 homeScore = null,
                 awayScore = null,
-                statusState = "pre",
-                statusDescription = liveMonitorStatus(event.commenceTime, now),
-                displayClock = "",
+                statusState = monitorState.statusState,
+                statusDescription = monitorState.description,
+                displayClock = monitorState.displayClock,
                 period = null,
-                isLive = false,
+                isLive = monitorState.isLive,
                 sourceName = "Surveillance live - evenement majeur",
                 sourceDetails = listOf(
                     event.sourceName,
@@ -949,7 +1005,7 @@ class SportsAnalysisRepository(
                 ).joinToString("\n"),
                 lastUpdate = syncTime,
                 statSummary = buildList {
-                    add("Statut live : ${liveMonitorStatus(event.commenceTime, now)}")
+                    add("Statut live : ${monitorState.description}")
                     add("Evenement majeur suivi : ${event.eventName}")
                     addAll(projection.statSummary)
                 }.joinToString("\n"),
@@ -957,13 +1013,6 @@ class SportsAnalysisRepository(
             )
         }
         .toList()
-
-    private fun liveMonitorStatus(commenceTime: Long, now: Long): String {
-        val delta = commenceTime - now
-        if (delta <= 0L) return "Départ passé · attente du flux live public"
-        val minutes = (delta / 60_000L).coerceAtLeast(1L)
-        return "Départ proche · dans ${minutes} min"
-    }
 
     private fun liveEventComparator(priorities: SyncPriorities): Comparator<LiveEventEntity> =
         compareByDescending<LiveEventEntity> { it.isLive }
@@ -1007,7 +1056,11 @@ class SportsAnalysisRepository(
             hasScorePayload &&
             commence <= now &&
             commence >= now - TENNIS_LIVE_SCORE_WINDOW_MS
-        val isLive = status?.isLiveStatus() == true || tennisScoreLive
+        val scheduleSuggestsLive = source.allowsScheduleBackedLive() &&
+            statusType?.completed != true &&
+            commence <= now &&
+            now <= commence + LiveEventStateResolver.estimatedDurationMs(source.sport)
+        val isLive = status?.isLiveStatus() == true || tennisScoreLive || scheduleSuggestsLive
         val startsSoon = LiveWindowPolicy.startsSoon(commence, now)
         if (
             !isLive &&
@@ -1038,6 +1091,8 @@ class SportsAnalysisRepository(
         val rawStatusDescription = when {
             tennisScoreLive && statusCandidate.orEmpty().contains("scheduled", ignoreCase = true) -> "En direct · score tennis public"
             tennisScoreLive && statusCandidate.isNullOrBlank() -> "En direct · score tennis public"
+            scheduleSuggestsLive && statusCandidate.orEmpty().contains("scheduled", ignoreCase = true) -> "En cours probable · score public en attente"
+            scheduleSuggestsLive && statusCandidate.isNullOrBlank() -> "En cours probable · score public en attente"
             else -> statusCandidate ?: if (isLive) "En direct" else "À surveiller"
         }
         val statusDescription = if (sessionLabel.isNotBlank() && !rawStatusDescription.contains(sessionLabel, ignoreCase = true)) {
@@ -1140,6 +1195,10 @@ class SportsAnalysisRepository(
 
     private fun EspnEventDto.liveStatus(): EspnStatusDto? =
         competitions.orEmpty().firstNotNullOfOrNull { it.status } ?: status
+
+    private fun PublicSource.allowsScheduleBackedLive(): Boolean =
+        sourceName.contains("TheSportsDB live", ignoreCase = true) ||
+            sourceName.contains("Volleyball World", ignoreCase = true)
 
     private fun EspnEventDto.raceLiveCompetition(sport: String, now: Long): EspnCompetitionDto? {
         val available = competitions.orEmpty()
@@ -2230,7 +2289,7 @@ class SportsAnalysisRepository(
         awayTeam = event.awayTeam,
         market = market,
         selection = selection,
-        betclicOdds = referenceOdds,
+        referenceOdds = referenceOdds,
         impliedProbability = impliedProbability,
         consensusProbability = estimatedProbability,
         valueEdge = valueEdge,

@@ -120,7 +120,7 @@ fun SportsScreen(
     var searchQuery by remember { mutableStateOf("") }
     var appliedSearchQuery by remember { mutableStateOf("") }
     LaunchedEffect(searchQuery) {
-        delay(220)
+        delay(360)
         appliedSearchQuery = searchQuery.trim()
     }
     val normalizedQuery = remember(appliedSearchQuery) { normalizedSearchText(appliedSearchQuery) }
@@ -200,30 +200,34 @@ fun SportsScreen(
         }
     }
     var visibleEvents by remember { mutableStateOf(emptyList<UpcomingEventEntity>()) }
+    var visibleEventTotal by remember { mutableStateOf(0) }
     LaunchedEffect(eventSearchIndex, futureEvents, searchActive, normalizedQuery, selectedSport, selectedCompetition) {
         val eventIndexSnapshot = eventSearchIndex
         val futureSnapshot = futureEvents
         val selectedSportSnapshot = selectedSport
         val selectedCompetitionSnapshot = selectedCompetition
-        visibleEvents = withContext(Dispatchers.Default) {
+        val computed = withContext(Dispatchers.Default) {
             if (searchActive) {
-                eventIndexSnapshot
+                val matches = eventIndexSnapshot
                     .asSequence()
                     .filter { matchesNormalizedSearch(it.searchText, normalizedQuery) }
                     .map { it.event }
                     .sortedBy { it.commenceTime }
-                    .take(MAX_SPORT_SEARCH_RESULTS)
                     .toList()
+                matches.size to matches.take(MAX_SPORT_SEARCH_RESULTS)
             } else {
-                futureSnapshot
+                val matches = futureSnapshot
                     .asSequence()
                     .filter { event ->
                         event.sportKey == selectedSportSnapshot &&
                             (selectedCompetitionSnapshot == null || event.competitionKey == selectedCompetitionSnapshot)
                     }
                     .toList()
+                matches.size to matches
             }
         }
+        visibleEventTotal = computed.first
+        visibleEvents = computed.second
     }
     val analysesById = remember(state.predictions) { state.predictions.associateBy { it.id } }
     val syncing = state.syncStatus == SyncStatus.Syncing
@@ -256,7 +260,7 @@ fun SportsScreen(
                                 Text("SPORT RADAR", style = MaterialTheme.typography.labelLarge, color = Amber)
                                 Text(t(language, "Calendrier & analyses", "Schedule & analysis", "Calendario y análisis", "Kalender & Analysen"), style = MaterialTheme.typography.headlineMedium)
                                 Text(
-                                    if (searchActive) t(language, "${visibleEvents.size} résultat(s) pour « ${searchQuery.trim()} »", "${visibleEvents.size} result(s) for “${searchQuery.trim()}”", "${visibleEvents.size} resultado(s) para « ${searchQuery.trim()} »", "${visibleEvents.size} Ergebnis(se) für „${searchQuery.trim()}“")
+                                    if (searchActive) t(language, "${visibleEventTotal} résultat(s), ${visibleEvents.size} affiché(s) pour « ${searchQuery.trim()} »", "${visibleEventTotal} result(s), ${visibleEvents.size} shown for “${searchQuery.trim()}”", "${visibleEventTotal} resultado(s), ${visibleEvents.size} mostrados para « ${searchQuery.trim()} »", "${visibleEventTotal} Ergebnis(se), ${visibleEvents.size} angezeigt für „${searchQuery.trim()}“")
                                     else t(language, "${futureEvents.size} événements à venir • $activeSports sports actifs", "${futureEvents.size} upcoming events • $activeSports active sports", "${futureEvents.size} próximos eventos • $activeSports deportes activos", "${futureEvents.size} kommende Ereignisse • $activeSports aktive Sportarten"),
                                     color = TextSecondary,
                                 )
@@ -383,7 +387,7 @@ fun SportsScreen(
     }
 }
 
-private const val MAX_SPORT_SEARCH_RESULTS = 160
+private const val MAX_SPORT_SEARCH_RESULTS = 90
 
 private data class SearchableEvent(
     val event: UpcomingEventEntity,

@@ -29,7 +29,10 @@ object LiveEventStateResolver {
         val completed = event.looksCompleted()
         val confirmed = event.looksResultConfirmed()
         val state = when {
-            event.isLive && !completed -> LiveEventState.Live
+            event.isLive && !completed && estimatedEnd >= now - LiveWindowPolicy.RECENT_FINISH_WINDOW_MS ->
+                LiveEventState.Live
+            event.isLive && !completed && estimatedEnd < now - LiveWindowPolicy.RECENT_FINISH_WINDOW_MS ->
+                LiveEventState.Archived
             confirmed && estimatedEnd in (now - LiveWindowPolicy.RECENT_FINISH_WINDOW_MS)..now ->
                 LiveEventState.ResultConfirmed
             completed && estimatedEnd in (now - LiveWindowPolicy.RECENT_FINISH_WINDOW_MS)..now ->
@@ -62,9 +65,10 @@ object LiveEventStateResolver {
     fun estimatedDurationMs(sport: String): Long = when (sport) {
         "soccer", "football", "rugby", "hockey", "handball" -> 2L * 60L * 60L * 1000L
         "basketball", "volleyball" -> 2L * 60L * 60L * 1000L
-        "baseball", "tennis", "mma", "boxing" -> 3L * 60L * 60L * 1000L
-        "racing", "nascar" -> 2L * 60L * 60L * 1000L
-        "cycling", "golf" -> 5L * 60L * 60L * 1000L
+        "baseball", "mma", "boxing" -> 3L * 60L * 60L * 1000L
+        "tennis" -> 5L * 60L * 60L * 1000L
+        "racing", "nascar" -> 3L * 60L * 60L * 1000L
+        "cycling", "golf" -> 7L * 60L * 60L * 1000L
         "athletics" -> 90L * 60L * 1000L
         else -> 2L * 60L * 60L * 1000L
     }

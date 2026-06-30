@@ -586,7 +586,7 @@ object PublicPredictionEngine {
             val awayUnavailable = unavailablePlayers(away)
             if (homeUnavailable.isNotEmpty()) add("Absences ${event.homeTeam} : ${homeUnavailable.joinToString(", ")}")
             if (awayUnavailable.isNotEmpty()) add("Absences ${event.awayTeam} : ${awayUnavailable.joinToString(", ")}")
-            if (homeUnavailable.isEmpty() && awayUnavailable.isEmpty()) add("Absences/suspensions : aucun fait relevé dans les sources actuelles.")
+            if (homeUnavailable.isEmpty() && awayUnavailable.isEmpty()) add("Absences/suspensions : Aucun fait relevé")
             event.standingSignals.forEach { add("Enjeu ${it.teamName} : ${it.description}") }
         }
         return PublicPrediction(
@@ -702,7 +702,7 @@ object PublicPredictionEngine {
             val awayUnavailable = unavailablePlayers(away)
             if (homeUnavailable.isNotEmpty()) add("Absences ${event.homeTeam} : ${homeUnavailable.joinToString(", ")}")
             if (awayUnavailable.isNotEmpty()) add("Absences ${event.awayTeam} : ${awayUnavailable.joinToString(", ")}")
-            if (homeUnavailable.isEmpty() && awayUnavailable.isEmpty()) add("Absences/rotations : aucun fait relevé dans les sources actuelles.")
+            if (homeUnavailable.isEmpty() && awayUnavailable.isEmpty()) add("Absences/rotations : Aucun fait relevé")
             event.standingSignals.forEach { add("Enjeu ${it.teamName} : ${it.description}") }
         }
         return PublicPrediction(
@@ -1566,6 +1566,9 @@ object PublicPredictionEngine {
         val sport = event.sportKey.substringBefore('/')
         val participants = listOf(event.homeTeam, event.awayTeam).filter { it.isNotBlank() }
         val eventLabel = participants.takeIf { it.size >= 2 }?.joinToString(" — ") ?: event.homeTeam.ifBlank { event.competitionName }
+        SportAnalysisRulebook.rules[sport]?.let { rule ->
+            return sportRuleWatchProfile(event, rule, eventLabel)
+        }
         return when (sport) {
             "soccer" -> teamSportWatchProfile(
                 event = event,
@@ -1871,6 +1874,52 @@ object PublicPredictionEngine {
                 )
             }
         }
+    }
+
+    private fun sportRuleWatchProfile(
+        event: PublicEvent,
+        rule: SportAnalysisRule,
+        eventLabel: String,
+    ): SportWatchProfile {
+        val venue = venueEdge(event)
+        val neutralVenue = neutralVenueSummary(
+            sportKey = event.sportKey,
+            sportTitle = event.sportTitle,
+            competitionName = event.competitionName,
+            homeTeam = event.homeTeam,
+            awayTeam = event.awayTeam,
+            commenceTime = event.commenceTime,
+        )
+        val scenarioSeed = listOf(
+            ProbabilityScenario("Événement confirmé au calendrier public", 1.0, "Calendrier ${rule.displayName}"),
+            ProbabilityScenario("${rule.readiness.label} : ne pas transformer le calendrier en signal chiffré", rule.baselineProbability, rule.readiness.label),
+        )
+        return SportWatchProfile(
+            market = rule.market,
+            selection = rule.selection,
+            baselineProbability = rule.baselineProbability,
+            confidence = rule.readiness.confidence,
+            expectedState = rule.expectedState,
+            explanation = rule.explanation,
+            positiveArguments = listOf(
+                "Événement confirmé dans le calendrier public.",
+                "Analyse activée seulement quand les données ${rule.displayName} clés sont disponibles : ${rule.requiredStats.take(5).joinToString(", ")}.",
+            ),
+            negativeArguments = listOf(
+                "${rule.readiness.label} : les informations disponibles ne suffisent pas encore à produire une recommandation forte.",
+                "Aucune blessure, composition, météo ou statistique absente ne doit être inventée.",
+            ) + listOfNotNull(neutralVenue),
+            statSummary = listOf(
+                "Événement : $eventLabel",
+                "Statut analyse : ${rule.readiness.label}",
+                "Stats attendues : ${rule.requiredStats.joinToString(", ")}",
+                "Acteurs/joueurs à vérifier : ${rule.actorStats.joinToString(", ")}",
+                "Contexte à recouper : ${rule.contextStats.joinToString(", ")}",
+            ) + listOfNotNull(neutralVenue, venue?.summary(event)),
+            scenarios = (scenarioSeed + rule.scenarios + listOfNotNull(venue?.scenario(event)))
+                .distinctBy { it.type + it.label },
+            category = rule.readiness.category,
+        )
     }
 
     private fun sportStatCopy(event: PublicEvent): SportStatCopy {

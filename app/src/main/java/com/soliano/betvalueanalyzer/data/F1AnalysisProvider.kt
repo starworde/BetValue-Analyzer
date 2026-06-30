@@ -97,7 +97,7 @@ data class F1AnalysisSnapshot(
             awayTeam = "Grille F1",
             market = "Vainqueur probable du Grand Prix",
             selection = favorite.first.name,
-            betclicOdds = 1.0 / favorite.second.coerceAtLeast(0.01),
+            referenceOdds = 1.0 / favorite.second.coerceAtLeast(0.01),
             impliedProbability = favorite.second,
             consensusProbability = favorite.second,
             valueEdge = 0.0,

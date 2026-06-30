@@ -15,7 +15,7 @@ data class PredictionEntity(
     val awayTeam: String,
     val market: String,
     val selection: String,
-    val betclicOdds: Double,
+    val referenceOdds: Double,
     val impliedProbability: Double,
     val consensusProbability: Double,
     val valueEdge: Double,

@@ -148,6 +148,31 @@ class CloudCollaborativeRulesTest {
     }
 
     @Test
+    fun `diagnostic github conserve sources vides et erreurs detaillees`() {
+        val diagnostic = cloudJobDiagnosticFromMap(
+            mapOf(
+                "status" to "success",
+                "configuredSports" to listOf("soccer", "volleyball", "boxing"),
+                "eventsBySport" to mapOf("soccer" to 120, "volleyball" to 24),
+                "sportsWithoutEvents" to listOf("baseball", "mma"),
+                "resultsBySport" to mapOf("soccer" to 90),
+                "sourceErrors" to listOf(
+                    mapOf("source" to "UCI WorldTour", "error" to "HTTP 503"),
+                    "Volleyball World : timeout",
+                ),
+            )
+        )
+
+        assertEquals(listOf("soccer", "volleyball", "boxing"), diagnostic.configuredSports)
+        assertEquals(24, diagnostic.eventsBySport["volleyball"])
+        assertEquals(listOf("baseball", "mma"), diagnostic.sportsWithoutEvents)
+        assertEquals(90, diagnostic.resultsBySport["soccer"])
+        assertEquals(2, diagnostic.sourceErrorsCount)
+        assertTrue(diagnostic.sourceErrors.any { it.contains("UCI WorldTour") })
+        assertTrue(diagnostic.sourceErrors.any { it.contains("timeout") })
+    }
+
+    @Test
     fun `erreur Firestore API desactivee affiche un message clair`() {
         val message = cloudCollaborativeErrorMessage(
             IllegalStateException(
@@ -172,7 +197,7 @@ class CloudCollaborativeRulesTest {
         awayTeam = "Argentine",
         market = "Résultat final",
         selection = "Argentine",
-        betclicOdds = 1.80,
+        referenceOdds = 1.80,
         impliedProbability = 0.55,
         consensusProbability = 0.72,
         valueEdge = 0.17,

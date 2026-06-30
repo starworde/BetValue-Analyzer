@@ -86,7 +86,7 @@ class PublicPredictionEngineTest {
         )
 
         assertTrue(result.single().selection.contains("Attendre forme"))
-        assertEquals("Données à compléter", result.single().category)
+        assertEquals("Données faibles", result.single().category)
         assertTrue(result.single().scenarios.any { it.type.contains("Calendrier") })
     }
 

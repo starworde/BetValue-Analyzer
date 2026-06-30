@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [AnalysisRecordEntity::class, SportEntity::class, PredictionEntity::class, UpcomingEventEntity::class, LiveEventEntity::class],
-    version = 8,
+    version = 9,
     exportSchema = true,
 )
 abstract class BetValueDatabase : RoomDatabase() {
@@ -27,12 +27,21 @@ abstract class BetValueDatabase : RoomDatabase() {
                 context.applicationContext,
                 BetValueDatabase::class.java,
                 "betvalue.db",
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8).build().also { instance = it }
+            ).addMigrations(
+                MIGRATION_1_2,
+                MIGRATION_2_3,
+                MIGRATION_3_4,
+                MIGRATION_4_5,
+                MIGRATION_5_6,
+                MIGRATION_6_7,
+                MIGRATION_7_8,
+                MIGRATION_8_9,
+            ).build().also { instance = it }
         }
 
         private val MIGRATION_1_2 = object : Migration(1, 2) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL(
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
                     """
                     CREATE TABLE IF NOT EXISTS predictions (
                         id TEXT NOT NULL PRIMARY KEY,
@@ -64,20 +73,20 @@ abstract class BetValueDatabase : RoomDatabase() {
         }
 
         private val MIGRATION_2_3 = object : Migration(2, 3) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL(
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
                     "ALTER TABLE predictions ADD COLUMN sourceName TEXT NOT NULL DEFAULT 'Source publique'"
                 )
-                database.execSQL("DELETE FROM predictions")
+                db.execSQL("DELETE FROM predictions")
             }
         }
 
         private val MIGRATION_3_4 = object : Migration(3, 4) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL(
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
                     "ALTER TABLE predictions ADD COLUMN competitionName TEXT NOT NULL DEFAULT 'Compétition'"
                 )
-                database.execSQL(
+                db.execSQL(
                     """
                     CREATE TABLE IF NOT EXISTS upcoming_events (
                         id TEXT NOT NULL PRIMARY KEY,
@@ -95,42 +104,42 @@ abstract class BetValueDatabase : RoomDatabase() {
                     )
                     """.trimIndent()
                 )
-                database.execSQL("DELETE FROM predictions")
+                db.execSQL("DELETE FROM predictions")
             }
         }
 
         private val MIGRATION_4_5 = object : Migration(4, 5) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL("ALTER TABLE predictions ADD COLUMN expectedScore TEXT NOT NULL DEFAULT ''")
-                database.execSQL("ALTER TABLE predictions ADD COLUMN statSummary TEXT NOT NULL DEFAULT ''")
-                database.execSQL("ALTER TABLE predictions ADD COLUMN scenarios TEXT NOT NULL DEFAULT ''")
-                database.execSQL("DELETE FROM predictions")
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE predictions ADD COLUMN expectedScore TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE predictions ADD COLUMN statSummary TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE predictions ADD COLUMN scenarios TEXT NOT NULL DEFAULT ''")
+                db.execSQL("DELETE FROM predictions")
             }
         }
 
         private val MIGRATION_5_6 = object : Migration(5, 6) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL("ALTER TABLE predictions ADD COLUMN homeLineupStatus TEXT NOT NULL DEFAULT ''")
-                database.execSQL("ALTER TABLE predictions ADD COLUMN homeLineup TEXT NOT NULL DEFAULT ''")
-                database.execSQL("ALTER TABLE predictions ADD COLUMN awayLineupStatus TEXT NOT NULL DEFAULT ''")
-                database.execSQL("ALTER TABLE predictions ADD COLUMN awayLineup TEXT NOT NULL DEFAULT ''")
-                database.execSQL("ALTER TABLE predictions ADD COLUMN playerScenarios TEXT NOT NULL DEFAULT ''")
-                database.execSQL("DELETE FROM predictions")
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE predictions ADD COLUMN homeLineupStatus TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE predictions ADD COLUMN homeLineup TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE predictions ADD COLUMN awayLineupStatus TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE predictions ADD COLUMN awayLineup TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE predictions ADD COLUMN playerScenarios TEXT NOT NULL DEFAULT ''")
+                db.execSQL("DELETE FROM predictions")
             }
         }
 
         private val MIGRATION_6_7 = object : Migration(6, 7) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL("ALTER TABLE predictions ADD COLUMN sourceDetails TEXT NOT NULL DEFAULT ''")
-                database.execSQL("ALTER TABLE predictions ADD COLUMN contextInsights TEXT NOT NULL DEFAULT ''")
-                database.execSQL("ALTER TABLE predictions ADD COLUMN sourceAgreement INTEGER NOT NULL DEFAULT 0")
-                database.execSQL("DELETE FROM predictions")
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE predictions ADD COLUMN sourceDetails TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE predictions ADD COLUMN contextInsights TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE predictions ADD COLUMN sourceAgreement INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("DELETE FROM predictions")
             }
         }
 
         private val MIGRATION_7_8 = object : Migration(7, 8) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL(
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
                     """
                     CREATE TABLE IF NOT EXISTS live_events (
                         id TEXT NOT NULL PRIMARY KEY,
@@ -156,6 +165,12 @@ abstract class BetValueDatabase : RoomDatabase() {
                     )
                     """.trimIndent()
                 )
+            }
+        }
+
+        private val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE predictions RENAME COLUMN betclicOdds TO referenceOdds")
             }
         }
     }

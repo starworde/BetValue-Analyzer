@@ -709,7 +709,7 @@ fun TennisAnalysisSnapshot.toPredictionEntity(updateTime: Long): com.soliano.bet
         awayTeam = playerB.name,
         market = "Vainqueur tennis",
         selection = selection,
-        betclicOdds = 1.0 / selectedProbability.coerceIn(0.01, 0.99),
+        referenceOdds = 1.0 / selectedProbability.coerceIn(0.01, 0.99),
         impliedProbability = 0.0,
         consensusProbability = selectedProbability,
         valueEdge = 0.0,

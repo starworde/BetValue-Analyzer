@@ -88,12 +88,17 @@ data class CloudJobDiagnostic(
     val startedAt: Long = 0L,
     val finishedAt: Long = 0L,
     val updatedAt: Long = 0L,
+    val configuredSports: List<String> = emptyList(),
+    val eventsBySport: Map<String, Int> = emptyMap(),
+    val sportsWithoutEvents: List<String> = emptyList(),
     val eventsFound: Int = 0,
     val resultsPrepared: Int = 0,
     val resultsWritten: Int = 0,
+    val resultsBySport: Map<String, Int> = emptyMap(),
     val removedSportDocumentsDeleted: Int = 0,
     val sourcesChecked: Int = 0,
     val sourceErrorsCount: Int = 0,
+    val sourceErrors: List<String> = emptyList(),
     val firestoreError: String = "",
     val firestoreCleanupError: String = "",
     val error: String = "",
@@ -279,7 +284,7 @@ fun CloudSharedResult.toPredictionEntity(local: PredictionEntity? = null): Predi
         awayTeam = awayTeam,
         market = market,
         selection = selection,
-        betclicOdds = local?.betclicOdds ?: 0.0,
+        referenceOdds = local?.referenceOdds ?: 0.0,
         impliedProbability = impliedProbability,
         consensusProbability = consensusProbability,
         valueEdge = valueEdge,
@@ -521,12 +526,17 @@ fun cloudJobDiagnosticFromMap(map: Map<String, Any?>): CloudJobDiagnostic = Clou
     startedAt = map.longValue("startedAt"),
     finishedAt = map.longValue("finishedAt"),
     updatedAt = map.longValue("updatedAt"),
+    configuredSports = map.stringListValue("configuredSports"),
+    eventsBySport = map.intMapValue("eventsBySport"),
+    sportsWithoutEvents = map.stringListValue("sportsWithoutEvents"),
     eventsFound = map.intValue("eventsFound"),
     resultsPrepared = map.intValue("resultsPrepared"),
     resultsWritten = map.intValue("resultsWritten"),
+    resultsBySport = map.intMapValue("resultsBySport"),
     removedSportDocumentsDeleted = map.intValue("removedSportDocumentsDeleted"),
     sourcesChecked = map.intValue("sourcesChecked"),
     sourceErrorsCount = (map["sourceErrors"] as? List<*>)?.size ?: map.intValue("sourceErrorsCount"),
+    sourceErrors = map.sourceErrorListValue("sourceErrors"),
     firestoreError = map.stringValue("firestoreError"),
     firestoreCleanupError = map.stringValue("firestoreCleanupError"),
     error = map.stringValue("error"),
@@ -573,6 +583,44 @@ private fun Map<String, Any?>.longValue(key: String): Long =
         is String -> value.toLongOrNull() ?: 0L
         else -> 0L
     }
+
+private fun Map<String, Any?>.stringListValue(key: String): List<String> =
+    (this[key] as? List<*>)
+        .orEmpty()
+        .mapNotNull { value -> value?.toString()?.trimCloudText(160)?.takeIf { it.isNotBlank() } }
+        .distinct()
+
+private fun Map<String, Any?>.intMapValue(key: String): Map<String, Int> =
+    (this[key] as? Map<*, *>)
+        .orEmpty()
+        .mapNotNull { (rawKey, rawValue) ->
+            val name = rawKey?.toString()?.trimCloudText(80)?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            val count = when (rawValue) {
+                is Number -> rawValue.toInt()
+                is String -> rawValue.toIntOrNull() ?: 0
+                else -> 0
+            }
+            name to count
+        }
+        .toMap()
+
+private fun Map<String, Any?>.sourceErrorListValue(key: String): List<String> =
+    (this[key] as? List<*>)
+        .orEmpty()
+        .mapNotNull { item ->
+            when (item) {
+                is Map<*, *> -> {
+                    val source = item["source"] ?: item["name"] ?: item["sport"] ?: item["url"]
+                    val error = item["error"] ?: item["message"] ?: item["status"]
+                    listOfNotNull(source, error)
+                        .joinToString(" : ") { it.toString().trimCloudText(120) }
+                        .takeIf { it.isNotBlank() }
+                }
+                else -> item?.toString()?.trimCloudText(220)
+            }
+        }
+        .filter { it.isNotBlank() }
+        .distinct()
 
 private fun Map<String, Any?>.intValue(key: String): Int =
     longValue(key).toInt()
