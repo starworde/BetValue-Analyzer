@@ -142,7 +142,7 @@ object PublicPredictionEngine {
             event.sportKey.startsWith("basketball") -> candidates.flatMap { basketballPlayerScenarios(it.stats) }
             event.sportKey.startsWith("baseball") -> candidates.flatMap { baseballPlayerScenarios(it.stats) }
             event.sportKey.startsWith("rugby") -> candidates.flatMap { scoringPlayerScenarios(it.stats, "essai", "Joueur · Essai") }
-            event.sportKey.startsWith("handball") -> candidates.flatMap { scoringPlayerScenarios(it.stats, "but", "Joueur · But") }
+            event.sportKey.startsWith("handball") -> candidates.flatMap { handballPlayerScenarios(it.stats) }
             event.sportKey.startsWith("hockey") || event.sportKey.startsWith("field_hockey") ->
                 candidates.flatMap { scoringPlayerScenarios(it.stats, "but", "Joueur · But") }
             event.sportKey.startsWith("volleyball") -> candidates.flatMap { pointsPlayerScenarios(it.stats, "Joueur · Points", "points") }
@@ -176,7 +176,10 @@ object PublicPredictionEngine {
                 "Joueur · Essai" to 5,
                 "Joueur · Passe" to 3,
             ).flatMap { (type, limit) -> ranked.filter { it.type == type }.take(limit) }
-            event.sportKey.startsWith("handball") || event.sportKey.startsWith("hockey") || event.sportKey.startsWith("field_hockey") -> listOf(
+            event.sportKey.startsWith("handball") -> listOf(
+                "Joueur · Buts handball" to 6,
+            ).flatMap { (type, limit) -> ranked.filter { it.type == type }.take(limit) }
+            event.sportKey.startsWith("hockey") || event.sportKey.startsWith("field_hockey") -> listOf(
                 "Joueur · But" to 5,
                 "Joueur · Passe" to 3,
             ).flatMap { (type, limit) -> ranked.filter { it.type == type }.take(limit) }
@@ -349,6 +352,33 @@ object PublicPredictionEngine {
         }
     }
 
+    private fun handballPlayerScenarios(player: PlayerStatProfile): List<ProbabilityScenario> {
+        val games = player.appearances.coerceAtLeast(1).toDouble()
+        val goalsPerGame = (player.goals / games).coerceAtMost(8.0)
+        if (goalsPerGame < 1.2) return emptyList()
+        val workload = player.workloadMultiplier()
+        val load = player.workloadNote()
+        val threshold = when {
+            goalsPerGame >= 5.5 -> 4
+            goalsPerGame >= 3.5 -> 3
+            else -> 2
+        }
+        return buildList {
+            add(ProbabilityScenario(
+                "${player.name} marque ${threshold}+ buts · ${decimal(goalsPerGame)} / match$load",
+                normalOver(threshold - 0.5, goalsPerGame, maxOf(1.6, sqrt(goalsPerGame) * 1.15)) * workload,
+                "Joueur · Buts handball",
+            ))
+            if (goalsPerGame >= 4.8) {
+                add(ProbabilityScenario(
+                    "${player.name} marque ${threshold + 1}+ buts · gros volume récent$load",
+                    normalOver(threshold + 0.5, goalsPerGame, maxOf(1.8, sqrt(goalsPerGame) * 1.2)) * workload,
+                    "Joueur · Buts handball",
+                ))
+            }
+        }
+    }
+
     private fun pointsPlayerScenarios(player: PlayerStatProfile, type: String, unit: String): List<ProbabilityScenario> {
         val games = player.appearances.coerceAtLeast(1).toDouble()
         val pointsPerGame = player.points / games
@@ -476,11 +506,247 @@ object PublicPredictionEngine {
         home: TeamStatProfile,
         away: TeamStatProfile,
     ): PublicPrediction {
-        return if (event.sportKey.startsWith("soccer")) {
-            soccerStatisticalPrediction(event, home, away)
-        } else {
-            twoWayStatisticalPrediction(event, home, away)
+        return when {
+            event.sportKey.startsWith("soccer") -> soccerStatisticalPrediction(event, home, away)
+            event.sportKey.startsWith("handball") -> handballStatisticalPrediction(event, home, away)
+            event.sportKey.startsWith("volleyball") -> volleyballStatisticalPrediction(event, home, away)
+            else -> twoWayStatisticalPrediction(event, home, away)
         }
+    }
+
+    private fun handballStatisticalPrediction(
+        event: PublicEvent,
+        home: TeamStatProfile,
+        away: TeamStatProfile,
+    ): PublicPrediction {
+        val copy = sportStatCopy(event)
+        val venue = venueEdge(event)
+        val homeDiff = home.averageScored - home.averageConceded
+        val awayDiff = away.averageScored - away.averageConceded
+        val homeSituation = (contextImpact(event, event.homeTeam) + availabilityImpact(home) + momentumImpact(home) + standingImpact(event, event.homeTeam))
+            .coerceIn(-0.08, 0.06)
+        val awaySituation = (contextImpact(event, event.awayTeam) + availabilityImpact(away) + momentumImpact(away) + standingImpact(event, event.awayTeam))
+            .coerceIn(-0.08, 0.06)
+        val strength = (home.winRate - away.winRate) * 2.0 + (homeDiff - awayDiff) / copy.scoreScale + (venue?.strengthShift ?: 0.0) +
+            (homeSituation - awaySituation) * 1.6
+        val homeWin = logistic(strength).coerceIn(0.18, 0.82)
+        val awayWin = 1.0 - homeWin
+        val selectedHome = homeWin >= awayWin
+        val probability = maxOf(homeWin, awayWin)
+        val selection = if (selectedHome) event.homeTeam else event.awayTeam
+        val homeGoals = (((home.averageScored + away.averageConceded) / 2.0) * (1.0 + homeSituation + (venue?.homeScoringBoost ?: 0.0))).coerceAtLeast(12.0)
+        val awayGoals = (((away.averageScored + home.averageConceded) / 2.0) * (1.0 + awaySituation - (venue?.awayScoringDrag ?: 0.0))).coerceAtLeast(12.0)
+        val totalMean = homeGoals + awayGoals
+        val totalSd = copy.fixedTotalSd ?: sqrt(totalMean.coerceAtLeast(1.0)) * copy.sdMultiplier
+        val totalLine = floor(totalMean / 2.0) * 2.0 + 0.5
+        val overProbability = normalOver(totalLine, totalMean, totalSd)
+        val projectedMargin = kotlin.math.abs(homeGoals - awayGoals)
+        val selectedMarginProbability = normalOver(copy.marginLine, projectedMargin, (totalSd * 0.45).coerceAtLeast(2.4))
+        val closeGameProbability = (1.0 - normalOver(copy.closeLine, projectedMargin, (totalSd * 0.55).coerceAtLeast(2.8))).coerceIn(0.01, 0.99)
+        val sample = minOf(home.games, away.games)
+        val agreement = (home.sourceAgreement + away.sourceAgreement) / 2.0
+        val confidence = (36 + agreement * 0.30 + kotlin.math.abs(homeWin - awayWin) * 40 + sample.coerceAtMost(8) * 1.2)
+            .roundToInt().coerceIn(43, 90)
+        val teamSd = (totalSd * 0.58).coerceAtLeast(2.2)
+        val homeLine = teamLine(homeGoals, "buts")
+        val awayLine = teamLine(awayGoals, "buts")
+        val expectedScore = "${homeGoals.roundToInt()} — ${awayGoals.roundToInt()}"
+        val scenarios = buildList {
+            val drawOrNeutralProbability = (0.07 + closeGameProbability * 0.10).coerceIn(0.07, 0.18)
+            add(ProbabilityScenario("Vainqueur temps réglementaire : ${event.homeTeam}", homeWin, "Vainqueur temps réglementaire"))
+            add(ProbabilityScenario("Vainqueur temps réglementaire : ${event.awayTeam}", awayWin, "Vainqueur temps réglementaire"))
+            if (closeGameProbability >= 0.48) {
+                add(ProbabilityScenario("Double chance handball : $selection ou nul", (probability + drawOrNeutralProbability).coerceAtMost(0.92), "Double chance handball"))
+            }
+            add(ProbabilityScenario("Plus de ${decimal(totalLine)} buts", overProbability, "Total buts"))
+            add(ProbabilityScenario("Moins de ${decimal(totalLine)} buts", 1.0 - overProbability, "Total buts"))
+            add(ProbabilityScenario("${event.homeTeam} plus de ${decimal(homeLine)} buts", normalOver(homeLine, homeGoals, teamSd), "Total buts équipe"))
+            add(ProbabilityScenario("${event.awayTeam} plus de ${decimal(awayLine)} buts", normalOver(awayLine, awayGoals, teamSd), "Total buts équipe"))
+            add(ProbabilityScenario("$selection handicap -${decimal(copy.marginLine)} buts", selectedMarginProbability, "Handicap buts"))
+            add(ProbabilityScenario("Match serré : écart de ${decimal(copy.closeLine)} buts ou moins", closeGameProbability, "Écart handball"))
+            add(ProbabilityScenario("Écart probable autour de ${projectedMargin.roundToInt()} buts", (1.0 - normalOver(copy.marginLine + 1.0, projectedMargin, teamSd)).coerceIn(0.01, 0.99), "Marge probable"))
+            add(ProbabilityScenario("Chaque équipe atteint 25+ buts", teamAtLeast(homeGoals, 25.0, teamSd) * teamAtLeast(awayGoals, 25.0, teamSd), "Total buts équipe"))
+            addAll(listOfNotNull(venue?.scenario(event)))
+        }.filter { it.probability in 0.01..0.99 }
+            .distinctBy { it.type + it.label }
+            .sortedByDescending { it.probability }
+        val summary = buildList {
+            add("${event.homeTeam} : ${home.wins}V-${home.losses}D, ${decimal(home.averageScored)} buts marqués / ${decimal(home.averageConceded)} buts encaissés par match")
+            add("${event.awayTeam} : ${away.wins}V-${away.losses}D, ${decimal(away.averageScored)} buts marqués / ${decimal(away.averageConceded)} buts encaissés par match")
+            add("Écart moyen projeté : ${decimal(projectedMargin)} buts ; total projeté : ${decimal(totalMean)} buts.")
+            add("Stats handball intégrées : forme 5-10 matchs si disponible, attaque/défense, buts par match, écart, H2H si disponible, domicile/extérieur seulement si la compétition n'est pas neutre.")
+            add("Stats handball à renforcer : confrontations directes, arrêts gardien, gardiens disponibles, exclusions 2 minutes, pertes de balle, jets de 7 mètres, efficacité 7 m, contre-attaques, profondeur de banc, fatigue et voyage.")
+            add("Marchés adaptés : vainqueur temps réglementaire, handicap buts, total buts, total buts équipe, écart probable, joueur buts seulement si stats fiables, arrêts gardien seulement si source publiée.")
+            add("HT/FT handball : masqué tant qu’une source fiable ne donne pas un score ou modèle mi-temps exploitable.")
+            neutralVenueSummary(event.sportKey, event.sportTitle, event.competitionName, homeTeam = event.homeTeam, awayTeam = event.awayTeam, commenceTime = event.commenceTime)?.let { add(it) }
+            venue?.let { add(it.summary(event)) }
+            if (kotlin.math.abs(home.formTrend) >= 0.12) add("Dynamique ${event.homeTeam} : ${trendLabel(home.formTrend)} sur la forme récente.")
+            if (kotlin.math.abs(away.formTrend) >= 0.12) add("Dynamique ${event.awayTeam} : ${trendLabel(away.formTrend)} sur la forme récente.")
+            val homeUnavailable = unavailablePlayers(home)
+            val awayUnavailable = unavailablePlayers(away)
+            if (homeUnavailable.isNotEmpty()) add("Absences ${event.homeTeam} : ${homeUnavailable.joinToString(", ")}")
+            if (awayUnavailable.isNotEmpty()) add("Absences ${event.awayTeam} : ${awayUnavailable.joinToString(", ")}")
+            if (homeUnavailable.isEmpty() && awayUnavailable.isEmpty()) add("Absences/suspensions : aucun fait relevé dans les sources actuelles.")
+            event.standingSignals.forEach { add("Enjeu ${it.teamName} : ${it.description}") }
+        }
+        return PublicPrediction(
+            id = "${event.eventId}:stats:handball",
+            market = "Vainqueur temps réglementaire",
+            selection = selection,
+            referenceOdds = 1.0 / probability,
+            impliedProbability = probability,
+            estimatedProbability = probability,
+            valueEdge = 0.0,
+            expectedValue = 0.0,
+            confidenceScore = confidence,
+            riskLevel = riskLevel(probability),
+            category = category(confidence),
+            sourceName = "${event.dataSourceName} · handball multi-source",
+            explanation = "Lecture handball sur le temps réglementaire : buts marqués/encaissés, écart moyen, forme récente, contexte de compétition, puis gardiens, exclusions 2 minutes et jets de 7 mètres quand ces données sont publiées.",
+            positiveArguments = listOf(
+                "${(home.sourceNames + away.sourceNames).distinct().size} sources statistiques recoupées pour les moyennes handball.",
+                "$sample matchs minimum comparés par équipe.",
+            ) + listOfNotNull(venue?.positiveArgument(event)),
+            negativeArguments = listOf(
+                "Si les sources ne donnent pas les arrêts gardien, exclusions 2 minutes, 7 mètres ou pertes de balle, ces points restent marqués à renforcer au lieu d'être inventés.",
+            ),
+            expectedScore = expectedScore,
+            statSummary = summary,
+            scenarios = scenarios,
+        )
+    }
+
+    private fun volleyballStatisticalPrediction(
+        event: PublicEvent,
+        home: TeamStatProfile,
+        away: TeamStatProfile,
+    ): PublicPrediction {
+        val venue = venueEdge(event)
+        val homeDiff = home.averageScored - home.averageConceded
+        val awayDiff = away.averageScored - away.averageConceded
+        val homeSituation = (contextImpact(event, event.homeTeam) + availabilityImpact(home) + momentumImpact(home) + standingImpact(event, event.homeTeam))
+            .coerceIn(-0.08, 0.06)
+        val awaySituation = (contextImpact(event, event.awayTeam) + availabilityImpact(away) + momentumImpact(away) + standingImpact(event, event.awayTeam))
+            .coerceIn(-0.08, 0.06)
+        val strength = (home.winRate - away.winRate) * 2.0 + (homeDiff - awayDiff) / 2.8 + (venue?.strengthShift ?: 0.0) +
+            (homeSituation - awaySituation) * 1.6
+        val homeWin = logistic(strength).coerceIn(0.18, 0.82)
+        val awayWin = 1.0 - homeWin
+        val selectedHome = homeWin >= awayWin
+        val probability = maxOf(homeWin, awayWin)
+        val selection = if (selectedHome) event.homeTeam else event.awayTeam
+        val closeness = (1.0 - kotlin.math.abs(homeWin - awayWin)).coerceIn(0.0, 1.0)
+        val sweepProbability = ((probability - 0.50) * 0.95 + (1.0 - closeness) * 0.30 + 0.18).coerceIn(0.16, 0.58)
+        val fiveSetProbability = (0.14 + closeness * 0.32 - (probability - 0.50) * 0.12).coerceIn(0.12, 0.46)
+        val fourSetProbability = (1.0 - sweepProbability - fiveSetProbability).coerceIn(0.18, 0.56)
+        val normalized = sweepProbability + fourSetProbability + fiveSetProbability
+        val p30 = sweepProbability / normalized
+        val p31 = fourSetProbability / normalized
+        val p32 = fiveSetProbability / normalized
+        val bestSetScore = listOf(
+            "3-0" to p30,
+            "3-1" to p31,
+            "3-2" to p32,
+        ).maxBy { it.second }
+        val scoreForHome = if (selectedHome) bestSetScore.first else bestSetScore.first.split("-").reversed().joinToString("-")
+        val expectedSets = (3.0 * p30 + 4.0 * p31 + 5.0 * p32).coerceIn(3.0, 5.0)
+        val homePointProxy = volleyballPointsPerSet(home, away, expectedSets, homeSituation, venue?.homeScoringBoost ?: 0.0)
+        val awayPointProxy = volleyballPointsPerSet(away, home, expectedSets, awaySituation, -(venue?.awayScoringDrag ?: 0.0))
+        val totalPointsMean = ((homePointProxy + awayPointProxy) * expectedSets).coerceIn(120.0, 235.0)
+        val pointsLine = floor(totalPointsMean / 5.0) * 5.0 + 0.5
+        val homeTeamPointsMean = (homePointProxy * expectedSets).coerceIn(55.0, 125.0)
+        val awayTeamPointsMean = (awayPointProxy * expectedSets).coerceIn(55.0, 125.0)
+        val homeTeamPointsLine = floor(homeTeamPointsMean / 5.0) * 5.0 + 0.5
+        val awayTeamPointsLine = floor(awayTeamPointsMean / 5.0) * 5.0 + 0.5
+        val projectedPointMargin = kotlin.math.abs(homeTeamPointsMean - awayTeamPointsMean)
+        val pointHandicapLine = 5.5
+        val sample = minOf(home.games, away.games)
+        val agreement = (home.sourceAgreement + away.sourceAgreement) / 2.0
+        val confidence = (35 + agreement * 0.30 + kotlin.math.abs(homeWin - awayWin) * 38 + sample.coerceAtMost(8) * 1.2)
+            .roundToInt().coerceIn(42, 89)
+        val scenarios = buildList {
+            add(ProbabilityScenario("Vainqueur volley : ${event.homeTeam}", homeWin, "Vainqueur volley"))
+            add(ProbabilityScenario("Vainqueur volley : ${event.awayTeam}", awayWin, "Vainqueur volley"))
+            add(ProbabilityScenario("Score en sets probable : $selection $scoreForHome", bestSetScore.second, "Score en sets"))
+            add(ProbabilityScenario("Plus de 3,5 sets", p31 + p32, "Total sets"))
+            add(ProbabilityScenario("Plus de 4,5 sets", p32, "Total sets"))
+            add(ProbabilityScenario("Moins de 4,5 sets", 1.0 - p32, "Total sets"))
+            add(ProbabilityScenario("$selection handicap -1,5 set", p30 + p31, "Handicap sets"))
+            add(ProbabilityScenario("$selection handicap -${decimal(pointHandicapLine)} points", normalOver(pointHandicapLine, projectedPointMargin, 10.0), "Handicap points"))
+            add(ProbabilityScenario("${if (selectedHome) event.awayTeam else event.homeTeam} gagne au moins un set", p31 + p32, "Équipe gagne un set"))
+            add(ProbabilityScenario("Total match plus de ${decimal(pointsLine)} points", normalOver(pointsLine, totalPointsMean, 15.0), "Total points match"))
+            add(ProbabilityScenario("${event.homeTeam} plus de ${decimal(homeTeamPointsLine)} points", normalOver(homeTeamPointsLine, homeTeamPointsMean, 9.0), "Total points équipe"))
+            add(ProbabilityScenario("${event.awayTeam} plus de ${decimal(awayTeamPointsLine)} points", normalOver(awayTeamPointsLine, awayTeamPointsMean, 9.0), "Total points équipe"))
+            add(ProbabilityScenario("Projection points par set : ${event.homeTeam} ${decimal(homePointProxy)} / ${event.awayTeam} ${decimal(awayPointProxy)}", 0.68.coerceAtMost(confidence / 100.0), "Points par set"))
+            if (closeness >= 0.72) {
+                add(ProbabilityScenario("Vainqueur avec prudence : $selection, niveaux proches", probability, "Vainqueur prudent"))
+            }
+            add(ProbabilityScenario("Match serré : 4 ou 5 sets", p31 + p32, "Match serré"))
+            addAll(listOfNotNull(venue?.scenario(event)))
+        }.filter { it.probability in 0.01..0.99 }
+            .distinctBy { it.type + it.label }
+            .sortedByDescending { it.probability }
+        val summary = buildList {
+            add("${event.homeTeam} : ${home.wins}V-${home.losses}D, repère ${decimal(home.averageScored)} marqués / ${decimal(home.averageConceded)} concédés.")
+            add("${event.awayTeam} : ${away.wins}V-${away.losses}D, repère ${decimal(away.averageScored)} marqués / ${decimal(away.averageConceded)} concédés.")
+            add("Score en sets projeté : $scoreForHome ; durée probable : ${decimal(expectedSets)} sets.")
+            add("Points par set estimés : ${event.homeTeam} ${decimal(homePointProxy)} / ${event.awayTeam} ${decimal(awayPointProxy)} ; total match autour de ${decimal(totalPointsMean)} points.")
+            add("Stats volley intégrées : forme 5-10 matchs si disponible, sets gagnés/perdus, points marqués/concédés, moyenne de sets, score 3-0/3-1/3-2, H2H si disponible, domicile/extérieur seulement si non neutre.")
+            add("Stats volley à renforcer : confrontations directes, réception, qualité de service, aces, fautes de service, contres, efficacité offensive, rotations, absents/incertains, fatigue, voyage et calendrier.")
+            add("Marchés adaptés : vainqueur, score en sets, over/under 3,5 ou 4,5 sets, handicap sets, total points match, points équipe, équipe gagne au moins un set, joueur points/aces/contres seulement si stats fiables.")
+            neutralVenueSummary(event.sportKey, event.sportTitle, event.competitionName, homeTeam = event.homeTeam, awayTeam = event.awayTeam, commenceTime = event.commenceTime)?.let { add(it) }
+            venue?.let { add(it.summary(event)) }
+            if (kotlin.math.abs(home.formTrend) >= 0.12) add("Dynamique ${event.homeTeam} : ${trendLabel(home.formTrend)} sur la forme récente.")
+            if (kotlin.math.abs(away.formTrend) >= 0.12) add("Dynamique ${event.awayTeam} : ${trendLabel(away.formTrend)} sur la forme récente.")
+            val homeUnavailable = unavailablePlayers(home)
+            val awayUnavailable = unavailablePlayers(away)
+            if (homeUnavailable.isNotEmpty()) add("Absences ${event.homeTeam} : ${homeUnavailable.joinToString(", ")}")
+            if (awayUnavailable.isNotEmpty()) add("Absences ${event.awayTeam} : ${awayUnavailable.joinToString(", ")}")
+            if (homeUnavailable.isEmpty() && awayUnavailable.isEmpty()) add("Absences/rotations : aucun fait relevé dans les sources actuelles.")
+            event.standingSignals.forEach { add("Enjeu ${it.teamName} : ${it.description}") }
+        }
+        return PublicPrediction(
+            id = "${event.eventId}:stats:volleyball",
+            market = "Vainqueur volley",
+            selection = selection,
+            referenceOdds = 1.0 / probability,
+            impliedProbability = probability,
+            estimatedProbability = probability,
+            valueEdge = 0.0,
+            expectedValue = 0.0,
+            confidenceScore = confidence,
+            riskLevel = riskLevel(probability),
+            category = category(confidence),
+            sourceName = "${event.dataSourceName} · volley multi-source",
+            explanation = "Lecture volley : le modèle transforme les écarts de forme et de points en probabilité de vainqueur, score en sets, durée 3/4/5 sets, points par set et total points. Les aces, contres, réception et rotations ne sont intégrés que si les sources les publient.",
+            positiveArguments = listOf(
+                "${(home.sourceNames + away.sourceNames).distinct().size} sources statistiques recoupées pour les repères volley.",
+                "$sample matchs minimum comparés par équipe.",
+            ) + listOfNotNull(venue?.positiveArgument(event)),
+            negativeArguments = listOf(
+                "Si réception, aces, fautes de service, contres ou rotations ne sont pas publiés, l'app les affiche comme données à renforcer au lieu de les inventer.",
+            ),
+            expectedScore = scoreForHome,
+            statSummary = summary,
+            scenarios = scenarios,
+        )
+    }
+
+    private fun volleyballPointsPerSet(
+        team: TeamStatProfile,
+        opponent: TeamStatProfile,
+        expectedSets: Double,
+        situationImpact: Double,
+        venueImpact: Double,
+    ): Double {
+        val raw = (team.averageScored + opponent.averageConceded) / 2.0
+        val base = if (raw >= 45.0) raw / expectedSets else raw
+        val normalized = when {
+            base >= 18.0 -> base
+            base >= 3.0 -> 21.0 + (base - 3.0).coerceIn(-2.0, 4.0) * 0.45
+            else -> 23.0
+        }
+        return (normalized * (1.0 + situationImpact * 0.18 + venueImpact * 0.08)).coerceIn(18.0, 27.5)
     }
 
     private fun soccerStatisticalPrediction(
@@ -1412,30 +1678,36 @@ object PublicPredictionEngine {
             "handball" -> teamSportWatchProfile(
                 event = event,
                 sportName = "handball",
-                selection = "Attendre gardiens, exclusions, rotations et buts",
-                expectedStats = "buts, arrêts gardiens, exclusions 2 minutes, pertes de balle, rotations, forme récente",
+                selection = "Données faibles · projection handball impossible pour l’instant",
+                expectedStats = "buts marqués/encaissés, goals/match, écart moyen, gardiens disponibles, arrêts gardien, exclusions 2 minutes, pertes de balle, jets de 7 mètres, efficacité 7 m, contre-attaques, rotations, absences, suspensions, banc, fatigue, voyage, calendrier et enjeu",
                 unit = "buts",
-                resultType = "Résultat handball",
+                resultType = "Vainqueur temps réglementaire",
                 totalType = "Total de buts",
-                playerFocus = "buts et passes décisives",
+                playerFocus = "buts joueurs uniquement si données fiables ; arrêts gardien seulement si source dédiée",
                 extraScenarios = listOf(
-                    ProbabilityScenario("Total buts à recalculer avec gardiens et rythme", 0.67, "Buts handball"),
-                    ProbabilityScenario("Écart inférieur à 5 buts à surveiller si niveaux proches", 0.62, "Écart handball"),
+                    ProbabilityScenario("Projection impossible : attendre buts/match, gardiens et exclusions 2 minutes", 0.50, "Données faibles"),
+                    ProbabilityScenario("Total buts à activer seulement avec rythme et gardiens recoupés", 0.50, "Total buts"),
+                    ProbabilityScenario("Handicap buts à activer seulement avec écart moyen fiable", 0.50, "Handicap buts"),
+                    ProbabilityScenario("Joueur buts à activer seulement avec temps de jeu et moyenne buts fiable", 0.50, "Joueur buts"),
                 ),
+                confidence = 24,
             )
             "volleyball" -> teamSportWatchProfile(
                 event = event,
                 sportName = "volley-ball",
-                selection = "Attendre service/réception, sets, rotations et forme",
-                expectedStats = "sets gagnés/perdus, points, aces, blocs, efficacité attaque, service/réception, rotations",
+                selection = "Données faibles · projection volley impossible pour l’instant",
+                expectedStats = "sets gagnés/perdus, score 3-0/3-1/3-2, points par set, points marqués/concédés, total points match, aces, fautes de service, réception, contres, efficacité attaque, rotations, absents/incertains, fatigue, voyage, calendrier, H2H et enjeu",
                 unit = "sets",
                 resultType = "Résultat volley",
                 totalType = "Total de sets",
-                playerFocus = "points, aces et blocs",
+                playerFocus = "points, aces et contres uniquement si données individuelles fiables",
                 extraScenarios = listOf(
-                    ProbabilityScenario("Match en 4 ou 5 sets à recalculer avec équilibre des équipes", 0.65, "Sets"),
-                    ProbabilityScenario("Réception/service à surveiller avant handicap sets", 0.61, "Service/réception"),
+                    ProbabilityScenario("Projection impossible : attendre points par set, service/réception et rotations", 0.50, "Données faibles"),
+                    ProbabilityScenario("Score en sets à activer seulement avec forme et points par set fiables", 0.50, "Score en sets"),
+                    ProbabilityScenario("Over/under 3,5 ou 4,5 sets à activer seulement avec équilibre fiable", 0.50, "Total sets"),
+                    ProbabilityScenario("Joueur points/aces/contres à activer seulement avec stats individuelles", 0.50, "Joueurs volley"),
                 ),
+                confidence = 24,
             )
             "cricket" -> teamSportWatchProfile(
                 event = event,
@@ -1787,10 +2059,10 @@ object PublicPredictionEngine {
                 scoredLabel = "buts marqués",
                 concededLabel = "buts encaissés",
                 marginUnit = "buts",
-                resultType = "Résultat handball",
-                winnerMarket = "Vainqueur du match",
-                explanationMetrics = "les buts marqués/encaissés, la vitesse de jeu et les rotations",
-                warning = "Gardiens, exclusions temporaires et rotations peuvent modifier fortement la projection.",
+                resultType = "Vainqueur temps réglementaire",
+                winnerMarket = "Vainqueur temps réglementaire",
+                explanationMetrics = "les buts marqués/encaissés, l’écart moyen, les gardiens, exclusions 2 minutes, pertes de balle, 7 mètres, rotations et fatigue",
+                warning = "Gardiens, exclusions 2 minutes, jets de 7 mètres, rotations, banc et fatigue peuvent modifier fortement la projection.",
                 scoreScale = 7.0,
                 sdMultiplier = 1.5,
                 marginLine = 3.5,
@@ -1814,13 +2086,13 @@ object PublicPredictionEngine {
             "volleyball" -> SportStatCopy(
                 displayName = "volley",
                 totalUnit = "sets",
-                scoredLabel = "sets/points gagnés",
-                concededLabel = "sets/points concédés",
+                scoredLabel = "sets ou points gagnés",
+                concededLabel = "sets ou points concédés",
                 marginUnit = "sets",
                 resultType = "Résultat volley",
-                winnerMarket = "Vainqueur du match",
-                explanationMetrics = "les sets/points gagnés, la forme et la stabilité service-réception",
-                warning = "Forme des passeurs, réception et rotations peuvent modifier fortement la projection.",
+                winnerMarket = "Vainqueur volley",
+                explanationMetrics = "les sets gagnés/perdus, points par set, service, réception, contres, efficacité attaque, rotations et fatigue",
+                warning = "Service, réception, contres, fautes directes, rotations et fatigue tournoi peuvent modifier fortement la projection.",
                 scoreScale = 1.8,
                 marginLine = 1.5,
                 closeLine = 1.5,

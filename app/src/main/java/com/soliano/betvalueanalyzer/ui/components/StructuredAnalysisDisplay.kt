@@ -1374,7 +1374,7 @@ private fun globalMarketRequirementLines(
             listOf(req("Actions football", "touchdown, yards, interception, sack", coveredBy("touchdown", "yards", "interception", "sack"), "Actions spécifiques déjà surveillées.", "À recouper avec QB, météo, blessures et turnovers."))
 
         "volleyball" -> resultScoreTotal("victoire", "score en sets", "total points") +
-            listOf(req("Handicap volley", "handicap sets / points, aces, blocs", coveredBy("handicap", "ace", "aces", "bloc", "blocks"), "Handicap/aces/blocs déjà surveillés.", "À recouper avec réception, erreurs et fatigue."))
+            listOf(req("Handicap volley", "handicap sets / points, aces, contres", coveredBy("handicap", "ace", "aces", "contre", "contres", "bloc", "blocks"), "Handicap/aces/contres déjà surveillés.", "À recouper avec réception, erreurs et fatigue."))
 
         "mma", "boxing" -> listOf(
             req("Issue du combat", "victoire, KO/TKO, soumission, décision", coveredBy("victoire", "ko", "tko", "soumission", "decision"), "L’issue du combat est déjà surveillée.", "Le PDF attend méthode de victoire et décision/finish."),

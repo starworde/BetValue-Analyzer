@@ -279,23 +279,23 @@ fun sportPredictionCopy(sportKey: String, sportTitle: String): SportPredictionCo
         )
         "handball" -> SportPredictionCopy(
             topLabel = "LECTURE HANDBALL",
-            contextLine = "Vainqueur, buts, gardiens, exclusions 2 minutes, rythme et rotations",
+            contextLine = "Temps réglementaire, buts, écart, gardien, exclusions 2 minutes, 7 mètres et rotations",
             cardLabel = "LECTURE HANDBALL",
             readingTitle = "Lecture handball",
             probabilityMetricLabel = "Chance de l’issue",
             probabilityMeaning = "chance estimée que cette issue handball se produise",
-            expectedHeader = "SCORE PROJETÉ EN BUTS",
+            expectedHeader = "SCORE PROJETÉ AU TEMPS RÉGLEMENTAIRE",
             expectedShortLabel = "Buts projetés",
             expectedProbabilityLabel = "projection",
             statsTitle = "Statistiques handball récentes",
-            scenariosTitle = "Probabilités handball : vainqueur, total de buts, écart et gardiens",
+            scenariosTitle = "Probabilités handball : vainqueur temps réglementaire, handicap buts, total buts, écart, gardien, exclusions et 7 mètres",
             lineupTitle = "Effectifs / gardiens",
             playerTitle = "Joueurs handball à surveiller",
-            playerFooter = "Buts et passes décisives seulement si les données publiques sont disponibles.",
+            playerFooter = "Buts joueurs uniquement si les données individuelles sont fiables ; arrêts gardien seulement si une source les publie.",
         )
         "volleyball" -> SportPredictionCopy(
             topLabel = "LECTURE VOLLEY",
-            contextLine = "Vainqueur, sets, dynamique de service/réception et forme récente",
+            contextLine = "Vainqueur, score en sets, points par set, service, réception, aces et contres",
             cardLabel = "LECTURE VOLLEY",
             readingTitle = "Lecture volley-ball",
             probabilityMetricLabel = "Chance de l’issue",
@@ -304,10 +304,10 @@ fun sportPredictionCopy(sportKey: String, sportTitle: String): SportPredictionCo
             expectedShortLabel = "Sets projetés",
             expectedProbabilityLabel = "projection",
             statsTitle = "Statistiques volley récentes",
-            scenariosTitle = "Probabilités volley : vainqueur et sets",
+            scenariosTitle = "Probabilités volley : vainqueur, score en sets, over/under sets, handicap sets et total points",
             lineupTitle = "Six de départ / effectifs",
             playerTitle = "Joueurs volley à surveiller",
-            playerFooter = "Points, aces ou blocs seulement si les données publiques existent.",
+            playerFooter = "Points, aces ou contres seulement si les données individuelles sont fiables.",
         )
         "athletics" -> SportPredictionCopy(
             topLabel = "LECTURE ATHLÉTISME",

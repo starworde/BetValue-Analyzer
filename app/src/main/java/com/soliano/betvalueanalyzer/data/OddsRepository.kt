@@ -14,6 +14,7 @@ import com.soliano.betvalueanalyzer.data.remote.EspnStatusDto
 import com.soliano.betvalueanalyzer.data.remote.EspnStatusTypeDto
 import com.soliano.betvalueanalyzer.data.remote.EspnFallbackParser
 import com.soliano.betvalueanalyzer.data.remote.EspnCompetitorDto
+import com.soliano.betvalueanalyzer.data.remote.EspnLineScoreDto
 import com.soliano.betvalueanalyzer.data.remote.ExternalScheduleEvent
 import com.soliano.betvalueanalyzer.data.remote.EspnParticipantDto
 import com.soliano.betvalueanalyzer.data.remote.TheSportsDbFallbackParser
@@ -24,6 +25,7 @@ import com.soliano.betvalueanalyzer.domain.PublicPrediction
 import com.soliano.betvalueanalyzer.domain.PublicPredictionEngine
 import com.soliano.betvalueanalyzer.domain.LiveEventSnapshot
 import com.soliano.betvalueanalyzer.domain.LiveProjectionEngine
+import com.soliano.betvalueanalyzer.domain.LiveWindowPolicy
 import com.soliano.betvalueanalyzer.domain.MatchContextSignal
 import com.soliano.betvalueanalyzer.domain.TeamProfileRequest
 import com.soliano.betvalueanalyzer.domain.TeamStatProfile
@@ -37,9 +39,12 @@ import java.time.ZoneOffset
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 
 data class OddsSyncResult(
     val eventsReceived: Int,
@@ -93,6 +98,8 @@ class OddsRepository(
         combine(predictionDao.observeAll(), clock) { predictions, now ->
             predictions.filter { it.commenceTime > now }
         }
+            .distinctUntilChanged()
+            .flowOn(Dispatchers.Default)
 
     val upcomingEvents: Flow<List<UpcomingEventEntity>> =
         combine(upcomingEventDao.observeAll(), clock) { events, now ->
@@ -101,13 +108,16 @@ class OddsRepository(
                 else event.commenceTime > now - ACTIVE_EVENT_LOOKBACK_MS
             }
         }
+            .distinctUntilChanged()
+            .flowOn(Dispatchers.Default)
 
     val liveEvents: Flow<List<LiveEventEntity>> =
         combine(liveEventDao.observeAll(), clock) { events, now ->
-            events.filter { event ->
-                event.isLive || event.commenceTime > now - liveEventKeepMs(event.sportKey.substringBefore('/'))
-            }.sortedWith(compareByDescending<LiveEventEntity> { it.isLive }.thenBy { it.commenceTime })
+            events.filter { event -> LiveWindowPolicy.shouldShow(event, now) }
+                .sortedWith(compareByDescending<LiveEventEntity> { it.isLive }.thenBy { it.commenceTime })
         }
+            .distinctUntilChanged()
+            .flowOn(Dispatchers.Default)
 
     suspend fun clearPredictions() {
         predictionDao.deleteAll()
@@ -485,10 +495,6 @@ class OddsRepository(
                 "$label darts moyenne checkout 180 ranking forme",
                 "$label flechettes format legs sets favoris",
             )
-            "snooker" -> listOf(
-                "$label snooker ranking forme frames centuries",
-                "$label snooker format handicap frames breaks",
-            )
             "athletics" -> listOf(
                 "$label athletics startlist season best personal best",
                 "$label athletisme qualification finale podium meteo vent",
@@ -712,10 +718,10 @@ class OddsRepository(
         priorities: SyncPriorities,
     ): List<LiveEventEntity> {
         val predictions = predictionDao.getUpcoming(now)
-            .mapNotNull { it.toLiveMonitorEvent(now, syncTime, priorities) }
+            .mapNotNull { it.toLiveMonitorEvent(now, syncTime) }
         val catalogEvents = upcomingEventDao.getActive(now, now - ACTIVE_EVENT_LOOKBACK_MS)
-            .mapNotNull { it.toLiveMonitorEvent(now, syncTime, priorities) }
-        val curatedEvents = curatedMajorLiveEvents(now, syncTime, priorities)
+            .mapNotNull { it.toLiveMonitorEvent(now, syncTime) }
+        val curatedEvents = curatedMajorLiveEvents(now, syncTime)
         return (predictions + catalogEvents + curatedEvents)
             .mergeLiveDuplicates()
             .sortedWith(liveEventComparator(priorities))
@@ -729,9 +735,8 @@ class OddsRepository(
     private fun PredictionEntity.toLiveMonitorEvent(
         now: Long,
         syncTime: Long,
-        priorities: SyncPriorities,
     ): LiveEventEntity? {
-        if (!withinLiveMonitorWindow(sportKey, competitionName, commenceTime, now, priorities)) return null
+        if (!withinLiveMonitorWindow(commenceTime, now)) return null
         val snapshot = LiveEventSnapshot(
             sportKey = sportKey,
             sportTitle = sportTitle,
@@ -795,9 +800,8 @@ class OddsRepository(
     private fun UpcomingEventEntity.toLiveMonitorEvent(
         now: Long,
         syncTime: Long,
-        priorities: SyncPriorities,
     ): LiveEventEntity? {
-        if (!withinLiveMonitorWindow(sportKey, competitionName, commenceTime, now, priorities)) return null
+        if (!withinLiveMonitorWindow(commenceTime, now)) return null
         val home = participantA.ifBlank { eventName }
         val away = participantB.ifBlank { competitionName.ifBlank { sportTitle } }
         val snapshot = LiveEventSnapshot(
@@ -851,24 +855,9 @@ class OddsRepository(
     }
 
     private fun withinLiveMonitorWindow(
-        sportKey: String,
-        competitionName: String,
         commenceTime: Long,
         now: Long,
-        priorities: SyncPriorities,
-    ): Boolean {
-        val sport = sportKey.substringBefore('/')
-        val favorite = sport in priorities.favoriteSports ||
-            competitionFavoriteKey(sport, competitionName) in priorities.favoriteCompetitions
-        val preWindow = when {
-            favorite -> LIVE_FAVORITE_PRE_WINDOW_MS
-            sport in LONG_LIVE_MONITOR_SPORTS -> LIVE_LONG_PRE_WINDOW_MS
-            sport in TEAM_SPORTS -> LIVE_TEAM_PRE_WINDOW_MS
-            else -> LIVE_MONITOR_PRE_WINDOW_MS
-        }
-        val lookback = liveMonitorLookbackMs(sport)
-        return commenceTime in (now - lookback)..(now + preWindow)
-    }
+    ): Boolean = LiveWindowPolicy.startsSoon(commenceTime, now)
 
     private fun curatedMajorCalendarEvents(
         now: Long,
@@ -901,10 +890,9 @@ class OddsRepository(
     private fun curatedMajorLiveEvents(
         now: Long,
         syncTime: Long,
-        priorities: SyncPriorities,
     ): List<LiveEventEntity> = CURATED_MAJOR_EVENTS
         .asSequence()
-        .filter { event -> withinLiveMonitorWindow(event.sportKey, event.competitionName, event.commenceTime, now, priorities) }
+        .filter { event -> withinLiveMonitorWindow(event.commenceTime, now) }
         .map { event ->
             val snapshot = LiveEventSnapshot(
                 sportKey = event.sportKey,
@@ -956,14 +944,9 @@ class OddsRepository(
 
     private fun liveMonitorStatus(commenceTime: Long, now: Long): String {
         val delta = commenceTime - now
-        if (delta <= -4L * 60 * 60 * 1000) return "Terminé récemment · score public en attente"
-        if (delta <= 0L) return "En cours ou terminé · attente du flux live public"
+        if (delta <= 0L) return "Départ passé · attente du flux live public"
         val minutes = (delta / 60_000L).coerceAtLeast(1L)
-        return when {
-            minutes < 60 -> "Départ proche · dans ${minutes} min"
-            minutes < 24 * 60 -> "À surveiller aujourd'hui · dans ${minutes / 60} h ${minutes % 60} min"
-            else -> "À surveiller · dans ${minutes / (24 * 60)} j"
-        }
+        return "Départ proche · dans ${minutes} min"
     }
 
     private fun liveEventComparator(priorities: SyncPriorities): Comparator<LiveEventEntity> =
@@ -981,7 +964,7 @@ class OddsRepository(
 
     private fun EspnEventDto.toLiveEvent(source: PublicSource, now: Long, syncTime: Long): LiveEventEntity? {
         val resultBoardEvent = source.sport in RESULT_BOARD_LIVE_SPORTS
-        val competition = if (resultBoardEvent) raceLiveCompetition(now) else competitions.orEmpty().firstOrNull()
+        val competition = if (resultBoardEvent) raceLiveCompetition(source.sport, now) else competitions.orEmpty().firstOrNull()
         val competitionStatus = competition?.status
         val eventStatus = this.status
         val status = if (resultBoardEvent && eventStatus?.isLiveStatus() == true && competitionStatus?.isLiveStatus() != true) {
@@ -991,35 +974,31 @@ class OddsRepository(
         }
         val statusType = status?.type
         val commence = parseInstant(competition?.date ?: competition?.startDate ?: date ?: return null) ?: return null
+        val participants = competition?.competitors.orEmpty()
+        val hasScorePayload = competition?.hasScorePayload() == true
         val raceTopSummary = if (resultBoardEvent && statusType?.state != "pre") competition?.raceTopSummary().orEmpty() else ""
         val teamCompletedResult = !resultBoardEvent &&
             statusType?.completed == true &&
-            competition?.competitors.orEmpty().any { it.score.asScore() != null } &&
-            commence in (now - TEAM_RESULT_KEEP_MS)..(now + LIVE_PRE_WINDOW_MS)
+            participants.any { it.score.asScore() != null } &&
+            LiveWindowPolicy.finishedRecentlyBySchedule(source.sport, commence, now)
         val freshCompletedResult = resultBoardEvent &&
             statusType?.completed == true &&
             raceTopSummary.isNotBlank() &&
-            commence in (now - RACE_RESULT_KEEP_MS)..(now + LIVE_PRE_WINDOW_MS)
+            LiveWindowPolicy.finishedRecentlyBySchedule(source.sport, commence, now)
         if (statusType?.completed == true && !freshCompletedResult && !teamCompletedResult) return null
-        val isLive = status?.isLiveStatus() == true
-        val closeToLiveWindow = commence in (now - liveEventKeepMs(source.sport))..(now + LIVE_PRE_WINDOW_MS)
-        val longEventWindow = resultBoardEvent && commence in (now - RACE_RESULT_KEEP_MS)..(now + LIVE_LONG_PRE_WINDOW_MS)
-        val teamTodayWindow = !resultBoardEvent &&
-            source.sport in TEAM_SPORTS &&
-            commence in (now - TEAM_MATCH_KEEP_MS)..(now + LIVE_TEAM_PRE_WINDOW_MS)
-        val standaloneTodayWindow = resultBoardEvent &&
-            commence in (now - RACE_RESULT_KEEP_MS)..(now + LIVE_LONG_PRE_WINDOW_MS)
+        val tennisScoreLive = source.sport == "tennis" &&
+            statusType?.completed != true &&
+            hasScorePayload &&
+            commence <= now &&
+            commence >= now - TENNIS_LIVE_SCORE_WINDOW_MS
+        val isLive = status?.isLiveStatus() == true || tennisScoreLive
+        val startsSoon = LiveWindowPolicy.startsSoon(commence, now)
         if (
             !isLive &&
-            !closeToLiveWindow &&
-            !longEventWindow &&
-            !teamTodayWindow &&
-            !standaloneTodayWindow &&
+            !startsSoon &&
             !freshCompletedResult &&
             !teamCompletedResult
         ) return null
-
-        val participants = competition?.competitors.orEmpty()
         val home = participants.firstOrNull { it.homeAway.equals("home", true) } ?: participants.getOrNull(0)
         val away = participants.firstOrNull { it.homeAway.equals("away", true) } ?: participants.getOrNull(1)
         val eventDisplayName = displayNameForStandalone() ?: name ?: shortName ?: source.title
@@ -1034,16 +1013,26 @@ class OddsRepository(
         } else {
             away?.team?.displayName ?: away?.athlete?.displayName ?: source.title
         }
-        val rawStatusDescription = listOfNotNull(
+        val statusCandidate = listOfNotNull(
             statusType?.shortDetail,
             statusType?.detail,
             statusType?.description,
             statusType?.name,
-        ).firstOrNull { value -> value.isNotBlank() } ?: if (isLive) "En direct" else "À surveiller"
+        ).firstOrNull { value -> value.isNotBlank() }
+        val rawStatusDescription = when {
+            tennisScoreLive && statusCandidate.orEmpty().contains("scheduled", ignoreCase = true) -> "En direct · score tennis public"
+            tennisScoreLive && statusCandidate.isNullOrBlank() -> "En direct · score tennis public"
+            else -> statusCandidate ?: if (isLive) "En direct" else "À surveiller"
+        }
         val statusDescription = if (sessionLabel.isNotBlank() && !rawStatusDescription.contains(sessionLabel, ignoreCase = true)) {
             "$sessionLabel · $rawStatusDescription"
         } else {
             rawStatusDescription
+        }
+        val statusState = when {
+            isLive && statusType?.state.isNullOrBlank() -> "in"
+            isLive && statusType?.state.equals("pre", true) -> "in"
+            else -> statusType?.state.orEmpty()
         }
         val homeScore = if (resultBoardEvent) null else home?.score.asScore()
         val awayScore = if (resultBoardEvent) null else away?.score.asScore()
@@ -1056,7 +1045,7 @@ class OddsRepository(
             awayName = awayName,
             homeScore = homeScore,
             awayScore = awayScore,
-            statusState = statusType?.state.orEmpty(),
+            statusState = statusState,
             statusDescription = statusDescription,
             displayClock = status?.displayClock.orEmpty(),
             period = status?.period,
@@ -1071,6 +1060,16 @@ class OddsRepository(
                 "$participantName · $label : $value"
             }
         }.take(40)
+        val tennisSetStats = if (source.sport == "tennis") {
+            participants.mapNotNull { participant ->
+                val participantName = participant.team?.displayName ?: participant.athlete?.displayName ?: return@mapNotNull null
+                val sets = participant.linescores.orEmpty()
+                    .mapIndexedNotNull { index, line -> line.cleanLineScore()?.let { "S${index + 1} $it" } }
+                if (sets.isEmpty()) null else "$participantName · ${sets.joinToString(" · ")}"
+            }
+        } else {
+            emptyList()
+        }
         val sourceDetails = buildList {
             add(source.sourceName)
             if (source.sourceName.contains("TheSportsDB", ignoreCase = true)) {
@@ -1080,6 +1079,7 @@ class OddsRepository(
             }
             if (raceTopSummary.isNotBlank()) add("Classement/top 3 public")
             if (realTimeStats.isNotEmpty()) add("Statistiques live publiques")
+            if (tennisSetStats.isNotEmpty()) add("Scores par set publics")
             competition?.odds.safeOdds().mapNotNull { it.provider?.name }.distinct().forEach { add("Marchés publics $it") }
         }.distinct()
         val resultLines = buildList {
@@ -1109,7 +1109,7 @@ class OddsRepository(
             awayName = awayName,
             homeScore = homeScore,
             awayScore = awayScore,
-            statusState = statusType?.state.orEmpty(),
+            statusState = statusState,
             statusDescription = statusDescription,
             displayClock = status?.displayClock.orEmpty(),
             period = status?.period,
@@ -1117,7 +1117,7 @@ class OddsRepository(
             sourceName = if (sourceDetails.size >= 2) "Live multi-signaux · ${sourceDetails.size} points" else source.sourceName,
             sourceDetails = sourceDetails.joinToString("\n"),
             lastUpdate = syncTime,
-            statSummary = (resultLines + projection.statSummary + realTimeStats).joinToString("\n"),
+            statSummary = (resultLines + projection.statSummary + tennisSetStats + realTimeStats).joinToString("\n"),
             scenarios = projection.scenarios.joinToString("\n") { "${it.type}|${it.label}|${it.probability}" },
         )
     }
@@ -1125,7 +1125,7 @@ class OddsRepository(
     private fun EspnEventDto.liveStatus(): EspnStatusDto? =
         competitions.orEmpty().firstNotNullOfOrNull { it.status } ?: status
 
-    private fun EspnEventDto.raceLiveCompetition(now: Long): EspnCompetitionDto? {
+    private fun EspnEventDto.raceLiveCompetition(sport: String, now: Long): EspnCompetitionDto? {
         val available = competitions.orEmpty()
             .filter { it.commenceMillis() != null }
         if (available.isEmpty()) return null
@@ -1135,22 +1135,18 @@ class OddsRepository(
                 .filter { competition ->
                     competition.status?.type?.completed == true &&
                         competition.raceTopSummary().orEmpty().isNotBlank() &&
-                        competition.commenceMillis()?.let { it in (now - RACE_RESULT_KEEP_MS)..(now + LIVE_PRE_WINDOW_MS) } == true
+                        competition.commenceMillis()?.let { LiveWindowPolicy.finishedRecentlyBySchedule(sport, it, now) } == true
                 }
                 .maxByOrNull { it.commenceMillis() ?: 0L }
             ?: available
                 .filter { competition ->
                     competition.status?.type?.completed != true &&
-                        competition.commenceMillis()?.let { it in (now - LIVE_EVENT_KEEP_MS)..(now + LIVE_LONG_PRE_WINDOW_MS) } == true
+                        competition.commenceMillis()?.let { LiveWindowPolicy.startsSoon(it, now) } == true
                 }
                 .minByOrNull { competition ->
                     val delta = (competition.commenceMillis() ?: now) - now
                     if (delta >= 0) delta else -delta
                 }
-            ?: available
-                .filter { it.raceTopSummary().orEmpty().isNotBlank() }
-                .maxByOrNull { it.commenceMillis() ?: 0L }
-            ?: available.firstOrNull()
     }
 
     private fun EspnStatusDto.isLiveStatus(): Boolean {
@@ -1162,10 +1158,32 @@ class OddsRepository(
                 "in_progress" in raw ||
                 "in progress" in raw ||
                 "live" in raw ||
+                "1st set" in raw ||
+                "2nd set" in raw ||
+                "3rd set" in raw ||
+                "4th set" in raw ||
+                "5th set" in raw ||
                 "halftime" in raw ||
                 (clock != null && clock > 0.0 && !type?.state.equals("pre", true))
             )
     }
+
+    private fun EspnCompetitionDto.hasScorePayload(): Boolean =
+        competitors.orEmpty().any { competitor ->
+            competitor.score.asScore() != null ||
+                competitor.linescores.orEmpty().any { it.hasPayload() }
+        }
+
+    private fun EspnLineScoreDto.hasPayload(): Boolean =
+        value != null ||
+            displayValue?.isNotBlank() == true ||
+            linescores.orEmpty().any { it.hasPayload() }
+
+    private fun EspnLineScoreDto.cleanLineScore(): String? =
+        displayValue?.takeIf { it.isNotBlank() }
+            ?: value?.let { lineValue ->
+                if (lineValue % 1.0 == 0.0) lineValue.toInt().toString() else lineValue.toString()
+            }
 
     private fun String?.asScore(): Int? = this?.substringBefore('.')?.toIntOrNull()
 
@@ -1264,17 +1282,17 @@ class OddsRepository(
         team?.displayName ?: athlete?.displayName.orEmpty()
 
     private fun liveEventKeepMs(sport: String): Long = when (sport) {
-        "soccer", "rugby", "football", "field_hockey" -> TEAM_MATCH_KEEP_MS
+        "soccer", "rugby", "football" -> TEAM_MATCH_KEEP_MS
         "basketball", "handball", "volleyball", "hockey" -> TEAM_MATCH_KEEP_MS
-        "baseball", "cricket", "tennis", "mma", "boxing", "darts", "snooker" -> 5L * 60 * 60 * 1000
+        "baseball", "cricket", "tennis", "mma", "boxing", "darts" -> 5L * 60 * 60 * 1000
         "cycling", "racing", "nascar", "golf", "athletics" -> RACE_RESULT_KEEP_MS
         else -> LIVE_EVENT_KEEP_MS
     }
 
     private fun liveMonitorLookbackMs(sport: String): Long = when (sport) {
-        "soccer", "rugby", "football", "field_hockey" -> TEAM_MATCH_KEEP_MS
+        "soccer", "rugby", "football" -> TEAM_MATCH_KEEP_MS
         "basketball", "handball", "volleyball", "hockey" -> TEAM_MATCH_KEEP_MS
-        "baseball", "cricket", "tennis", "mma", "boxing", "darts", "snooker" -> 5L * 60 * 60 * 1000
+        "baseball", "cricket", "tennis", "mma", "boxing", "darts" -> 5L * 60 * 60 * 1000
         "cycling", "racing", "nascar", "golf", "athletics" -> RACE_RESULT_KEEP_MS
         else -> LIVE_EVENT_KEEP_MS
     }
@@ -1390,12 +1408,17 @@ class OddsRepository(
         }
         val path = "apis/site/v2/sports/${source.apiSport}/${source.league}/scoreboard?dates=$dates&limit=500"
         val hosts = listOf(preferredHost, "https://site.web.api.espn.com/", "https://site.api.espn.com/").distinct()
+        var successfulEmptyResponse = false
         hosts.forEach { host ->
             val url = host + path
             val response = runCatching { api.getScoreboardUrl(url) }.getOrNull()
             if (response != null && response.isSuccessful) {
-                preferredHost = host
-                return response.body()?.events.orEmpty().expandedScoreboardEvents(source)
+                val events = response.body()?.events.orEmpty().expandedScoreboardEvents(source)
+                if (events.isNotEmpty()) {
+                    preferredHost = host
+                    return events
+                }
+                successfulEmptyResponse = true
             }
             val raw = runCatching { api.getRawUrl(url) }.getOrNull()
             if (raw != null && raw.isSuccessful) {
@@ -1404,9 +1427,10 @@ class OddsRepository(
                     preferredHost = host
                     return events
                 }
+                successfulEmptyResponse = true
             }
         }
-        return null
+        return if (successfulEmptyResponse) emptyList() else null
     }
 
     private fun List<EspnEventDto>.expandedScoreboardEvents(source: PublicSource): List<EspnEventDto> {
@@ -1439,7 +1463,26 @@ class OddsRepository(
                     }
                 }
             matchEvents.ifEmpty {
-                listOf(event.copy(tournamentName = tournamentName, eventTypeOverride = "TOURNAMENT"))
+                val directCompetition = event.competitions.orEmpty().firstOrNull { competition ->
+                    val names = competition.competitorNames()
+                    names.size >= 2 && names.none(::isPlaceholderTennisParticipant)
+                }
+                if (directCompetition == null) {
+                    listOf(event.copy(tournamentName = tournamentName, eventTypeOverride = "TOURNAMENT"))
+                } else {
+                    val names = directCompetition.competitorNames()
+                    val matchName = names.take(2).joinToString(" — ")
+                    listOf(
+                        event.copy(
+                            name = matchName,
+                            shortName = matchName,
+                            competitions = listOf(directCompetition),
+                            status = directCompetition.status ?: event.status,
+                            tournamentName = tournamentName,
+                            eventTypeOverride = "MATCH",
+                        )
+                    )
+                }
             }
         }
     }
@@ -1487,9 +1530,7 @@ class OddsRepository(
             "MMA",
             "Boxing",
             "Darts",
-            "Snooker",
             "Athletics",
-            "Field Hockey",
             "Motorsport",
         )
         val favoriteSports = priorities.favoriteSports.mapNotNull(::externalQuerySport)
@@ -1544,9 +1585,7 @@ class OddsRepository(
             "MMA",
             "Boxing",
             "Darts",
-            "Snooker",
             "Athletics",
-            "Field Hockey",
             "Motorsport",
         )
         val favoriteSports = priorities.favoriteSports.mapNotNull(::externalQuerySport)
@@ -1666,6 +1705,7 @@ class OddsRepository(
             raw.contains("live") ||
                 raw.contains("in progress") ||
                 raw.contains("playing") ||
+                Regex("\\b[1-5](?:st|nd|rd|th) set\\b").containsMatchIn(raw) ||
                 raw.contains("half") ||
                 Regex("\\b\\d{1,3}'\\b").containsMatchIn(raw)
             )
@@ -1795,9 +1835,7 @@ class OddsRepository(
         "golf" -> "golf" to "Golf"
         "cycling" -> "cycling" to "Cyclisme"
         "darts" -> "darts" to "Fléchettes"
-        "snooker" -> "snooker" to "Snooker"
         "athletics" -> "athletics" to "Athlétisme"
-        "field hockey" -> "field_hockey" to "Hockey sur gazon"
         "motorsport", "motor sport", "formula 1" -> "racing" to "Sports mécaniques"
         "nascar" -> "nascar" to "NASCAR"
         "mma", "mixed martial arts" -> "mma" to "MMA"
@@ -1820,9 +1858,7 @@ class OddsRepository(
         "golf" -> "Golf"
         "cycling" -> "Cycling"
         "darts" -> "Darts"
-        "snooker" -> "Snooker"
         "athletics" -> "Athletics"
-        "field_hockey" -> "Field Hockey"
         "racing", "nascar" -> "Motorsport"
         "mma" -> "MMA"
         "boxing" -> "Boxing"
@@ -1834,7 +1870,7 @@ class OddsRepository(
         "racing" -> "GP"
         "golf" -> "TOURNAMENT"
         "tennis" -> "MATCH"
-        "mma", "boxing", "athletics", "darts", "snooker" -> "EVENT"
+        "mma", "boxing", "athletics", "darts" -> "EVENT"
         else -> "MATCH"
     }
 
@@ -2434,6 +2470,7 @@ class OddsRepository(
         const val TEAM_MATCH_KEEP_MS = 18L * 60 * 60 * 1000
         const val TEAM_RESULT_KEEP_MS = 24L * 60 * 60 * 1000
         const val RACE_RESULT_KEEP_MS = 18L * 60 * 60 * 1000
+        const val TENNIS_LIVE_SCORE_WINDOW_MS = 6L * 60 * 60 * 1000
         const val MAX_ENRICHED_MATCHES = 24
         const val MAX_NEWS_MATCHES = 12
 
@@ -2446,7 +2483,6 @@ class OddsRepository(
             "rugby",
             "handball",
             "volleyball",
-            "field_hockey",
             "cricket",
             "australian_football",
         )
@@ -2457,19 +2493,17 @@ class OddsRepository(
             "boxing",
             "nascar",
             "darts",
-            "snooker",
             "athletics",
         )
         val ANALYZABLE_SPORTS = TEAM_SPORTS + STANDALONE_SPORTS + setOf("cycling", "racing")
         val PROFILE_SPORTS = TEAM_SPORTS
-        val LONG_LIVE_MONITOR_SPORTS = setOf("cycling", "racing", "nascar", "golf", "tennis", "athletics", "mma", "boxing", "darts", "snooker")
+        val LONG_LIVE_MONITOR_SPORTS = setOf("cycling", "racing", "nascar", "golf", "tennis", "athletics", "mma", "boxing", "darts")
         val RESULT_BOARD_LIVE_SPORTS = setOf("cycling", "racing", "nascar", "golf", "athletics")
         val SPORTS_DB_SEASON_EXPANDED_SPORTS = setOf(
             "tennis",
             "volleyball",
             "handball",
             "cricket",
-            "snooker",
             "darts",
         )
 
@@ -2512,14 +2546,11 @@ class OddsRepository(
             ExternalLeagueSource("5613", "volleyball", "Volley-ball", "Championnat d'Europe masculin", "MATCH"),
             ExternalLeagueSource("5848", "volleyball", "Volley-ball", "European Volleyball League", "MATCH"),
             ExternalLeagueSource("5614", "volleyball", "Volley-ball", "CEV Challenge Cup", "MATCH"),
-            ExternalLeagueSource("5813", "field_hockey", "Hockey sur gazon", "EuroHockey Championship", "MATCH"),
-            ExternalLeagueSource("5812", "field_hockey", "Hockey sur gazon", "Pan American Cup", "MATCH"),
             ExternalLeagueSource("4464", "tennis", "Tennis", "ATP World Tour", "MATCH"),
             ExternalLeagueSource("4517", "tennis", "Tennis", "WTA Tour", "MATCH"),
             ExternalLeagueSource("4581", "tennis", "Tennis", "Laver Cup", "TOURNAMENT"),
             ExternalLeagueSource("4761", "golf", "Golf", "PGA Tour of Australasia", "TOURNAMENT"),
             ExternalLeagueSource("4758", "golf", "Golf", "European Challenge Tour", "TOURNAMENT"),
-            ExternalLeagueSource("4555", "snooker", "Snooker", "World Snooker", "TOURNAMENT"),
             ExternalLeagueSource("4554", "darts", "Fléchettes", "PDC Darts", "EVENT"),
             ExternalLeagueSource("4561", "darts", "Fléchettes", "BDO Darts", "EVENT"),
             ExternalLeagueSource("4461", "cricket", "Cricket", "Big Bash League", "MATCH"),

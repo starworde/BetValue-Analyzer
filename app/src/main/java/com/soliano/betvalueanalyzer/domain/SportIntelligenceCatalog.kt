@@ -148,37 +148,45 @@ object SportIntelligenceCatalog {
         ),
         "handball" to profile(
             sportKey = "handball",
-            watchedStats = listOf("buts", "arrêts gardiens", "exclusions 2 minutes", "pertes de balle", "efficacité ailes", "jeu rapide", "jets de 7m", "rotations"),
-            playerStats = listOf("buts joueur", "passes décisives", "jets de 7m", "temps de jeu", "arrêts gardien", "exclusions"),
-            contextStats = listOf("gardien titulaire", "rythme", "défense 6-0/5-1", "fatigue", "rotations", "discipline"),
+            watchedStats = listOf("buts", "buts par match", "écart moyen", "confrontations directes", "H2H", "arrêts gardiens", "gardien disponible", "exclusions 2 minutes", "pertes de balle", "contre-attaques", "jets de 7m", "efficacité 7m", "rotations", "profondeur de banc"),
+            playerStats = listOf("buts joueur", "temps de jeu", "jets de 7m", "retour blessure", "suspension", "carton récent", "arrêts gardien si source publiée"),
+            contextStats = listOf("classement", "enjeu", "H2H", "confrontations directes", "domicile/extérieur", "gardien titulaire", "rythme", "défense 6-0/5-1", "fatigue", "voyage", "calendrier", "rotations", "discipline"),
             probabilityScenarios = listOf(
-                ProbabilityScenario("Total buts à recalculer avec gardiens et rythme", 0.67, "Total buts"),
-                ProbabilityScenario("Exclusions 2 minutes peuvent créer des séries rapides", 0.55, "Discipline"),
+                ProbabilityScenario("Vainqueur temps réglementaire à recalculer avec buts/match et écart moyen", 0.64, "Vainqueur temps réglementaire"),
+                ProbabilityScenario("Total buts à recalculer avec gardiens, rythme et pertes de balle", 0.67, "Total buts"),
+                ProbabilityScenario("Handicap buts à valider seulement si l’écart moyen concorde", 0.58, "Handicap buts"),
+                ProbabilityScenario("Exclusions 2 minutes peuvent accélérer le rythme", 0.55, "Exclusions 2 minutes"),
                 ProbabilityScenario("Jets de 7m à surveiller selon agressivité défensive", 0.52, "7 mètres"),
-                ProbabilityScenario("Écart inférieur à 5 buts si gardiens équilibrés", 0.58, "Écart"),
-                ProbabilityScenario("Score équipe 25+ buts à vérifier avec rythme", 0.60, "Performance équipe"),
+                ProbabilityScenario("Match serré si écart projeté inférieur à 5 buts", 0.58, "Écart handball"),
             ),
             playerProbabilityScenarios = listOf(
-                ProbabilityScenario("Arrière/ailier : buts à recalculer avec temps de jeu", 0.58, "Joueur · Buts"),
-                ProbabilityScenario("Gardien : arrêts à surveiller selon volume tirs", 0.54, "Joueur · Arrêts"),
+                ProbabilityScenario("Joueur : buts à recalculer avec temps de jeu et moyenne buts", 0.58, "Joueur · Buts handball"),
+                ProbabilityScenario("Gardien : arrêts seulement si la source publie les saves", 0.54, "Joueur · Arrêts gardien"),
+                ProbabilityScenario("Joueur 7 mètres : projection seulement avec tireur confirmé", 0.52, "Joueur · 7 mètres"),
+                ProbabilityScenario("Joueur : absence, retour ou suspension à intégrer avant les buts", 0.50, "Joueur · Disponibilité handball"),
             ),
+            includeUniversalScenarios = false,
         ),
         "volleyball" to profile(
             sportKey = "volleyball",
-            watchedStats = listOf("sets", "aces", "réception", "blocks", "efficacité attaque", "erreurs directes", "rotations", "points par set"),
-            playerStats = listOf("points", "aces", "blocks", "réception", "attaques gagnantes", "rôle titulaire"),
-            contextStats = listOf("passeur", "réception", "service agressif", "fatigue tournoi", "rotation", "matchup au filet"),
+            watchedStats = listOf("sets gagnés/perdus", "score en sets 3-0/3-1/3-2", "points par set", "points marqués/concédés", "confrontations directes", "H2H", "aces", "fautes de service", "réception", "contres", "efficacité attaque", "erreurs directes", "rotations", "moyenne de sets"),
+            playerStats = listOf("points", "aces", "contres", "réception", "attaques gagnantes", "rôle titulaire", "rotation", "retour blessure"),
+            contextStats = listOf("classement", "enjeu", "H2H", "passeur", "réception", "service agressif", "fatigue tournoi", "voyage", "calendrier", "rotation", "matchup au filet"),
             probabilityScenarios = listOf(
-                ProbabilityScenario("Match en 4 ou 5 sets si réception équilibrée", 0.62, "Sets"),
+                ProbabilityScenario("Score en sets 3-0/3-1/3-2 à recalculer avec forme et points par set", 0.60, "Score en sets"),
+                ProbabilityScenario("Match en 4 ou 5 sets si réception équilibrée", 0.62, "Total sets"),
                 ProbabilityScenario("Aces à surveiller avec service agressif/réception fragile", 0.54, "Aces"),
                 ProbabilityScenario("Handicap sets à recalculer avec efficacité attaque", 0.56, "Handicap sets"),
-                ProbabilityScenario("Blocks élevés possibles si mismatch au filet", 0.51, "Blocks"),
-                ProbabilityScenario("Total points set à vérifier avec erreurs directes", 0.55, "Total points"),
+                ProbabilityScenario("Contres élevés possibles si mismatch au filet", 0.51, "Contres"),
+                ProbabilityScenario("Total points match à vérifier avec points par set et erreurs directes", 0.55, "Total points"),
             ),
             playerProbabilityScenarios = listOf(
                 ProbabilityScenario("Attaquant : points à recalculer avec volume d’attaques", 0.58, "Joueur · Points"),
-                ProbabilityScenario("Central : blocks à surveiller selon matchup", 0.50, "Joueur · Blocks"),
+                ProbabilityScenario("Central : contres à surveiller selon matchup", 0.50, "Joueur · Contres"),
+                ProbabilityScenario("Serveur : aces seulement si historique service fiable", 0.52, "Joueur · Aces"),
+                ProbabilityScenario("Réceptionneur : impact à intégrer seulement avec réception publiée", 0.50, "Joueur · Réception"),
             ),
+            includeUniversalScenarios = false,
         ),
         "cricket" to profile(
             sportKey = "cricket",
@@ -325,6 +333,7 @@ object SportIntelligenceCatalog {
         contextStats: List<String>,
         probabilityScenarios: List<ProbabilityScenario>,
         playerProbabilityScenarios: List<ProbabilityScenario>,
+        includeUniversalScenarios: Boolean = true,
     ): SportIntelligenceProfile {
         val universalWatchedStats = listOf("charge récente", "forme saison", "blessure/retour", "info live officielle")
         val universalPlayerStats = listOf("volume récent vs moyenne saison", "état physique", "rôle confirmé", "fatigue spécifique")
@@ -344,8 +353,8 @@ object SportIntelligenceCatalog {
             watchedStats = (watchedStats + universalWatchedStats).distinct(),
             playerStats = (playerStats + universalPlayerStats).distinct(),
             contextStats = (contextStats + universalContextStats).distinct(),
-            probabilityScenarios = (probabilityScenarios + universalScenarios).distinctBy { it.type + it.label },
-            playerProbabilityScenarios = (playerProbabilityScenarios + universalPlayerScenarios).distinctBy { it.type + it.label },
+            probabilityScenarios = (probabilityScenarios + if (includeUniversalScenarios) universalScenarios else emptyList()).distinctBy { it.type + it.label },
+            playerProbabilityScenarios = (playerProbabilityScenarios + if (includeUniversalScenarios) universalPlayerScenarios else emptyList()).distinctBy { it.type + it.label },
         )
     }
 

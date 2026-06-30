@@ -41,6 +41,9 @@ interface SportDao {
 
     @Query("SELECT COUNT(*) FROM sports")
     suspend fun count(): Int
+
+    @Query("DELETE FROM sports WHERE name IN (:names)")
+    suspend fun deleteByNames(names: List<String>)
 }
 
 @Dao

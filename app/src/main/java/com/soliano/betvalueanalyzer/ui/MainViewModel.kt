@@ -32,6 +32,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -40,6 +41,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.yield
 import java.text.Normalizer
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
@@ -138,21 +140,23 @@ class MainViewModel(
         OddsUiStreams(predictions, events, liveEvents)
     }
 
-    private val displayOddsState = oddsUiState.map { odds ->
-        withContext(Dispatchers.Default) {
-            val displayPredictions = odds.predictions
-                .map { it.cleanedForDisplay() }
-                .deduplicatedPredictionsForDisplay()
-            val displayEvents = odds.events
-                .map { it.cleanedForDisplay() }
-                .deduplicatedEventsForDisplay()
-            OddsUiStreams(
-                predictions = displayPredictions,
-                events = displayEvents,
-                liveEvents = odds.liveEvents.map { it.cleanedForDisplay() },
-            )
+    private val displayOddsState = oddsUiState
+        .conflate()
+        .map { odds ->
+            withContext(Dispatchers.Default) {
+                val displayPredictions = odds.predictions
+                    .map { it.cleanedForDisplay() }
+                    .deduplicatedPredictionsForDisplay()
+                val displayEvents = odds.events
+                    .map { it.cleanedForDisplay() }
+                    .deduplicatedEventsForDisplay()
+                OddsUiStreams(
+                    predictions = displayPredictions,
+                    events = displayEvents,
+                    liveEvents = odds.liveEvents.map { it.cleanedForDisplay() },
+                )
+            }
         }
-    }
 
     private val contentState = combine(
         analysisRepository.sports,
@@ -419,14 +423,16 @@ class MainViewModel(
     }
 
     fun preloadSportAnalyses(sportKey: String) {
+        if (syncStatus.value == SyncStatus.Syncing) return
         val sport = sportKey.substringBefore('/')
         sportPreloadJobs[sport]?.cancel()
         sportPreloadJobs[sport] = viewModelScope.launch(Dispatchers.Default) {
             val targets = sportPreloadTargets(sport)
             targets.forEach { target ->
                 try {
+                    yield()
                     startDeepAnalysisTask(target).await()
-                    delay(180)
+                    delay(450)
                 } catch (error: CancellationException) {
                     throw error
                 } catch (_: Throwable) {
@@ -484,8 +490,10 @@ class MainViewModel(
             }
             _deepAnalysis.value = DeepAnalysisStatus.Running(target, 0.03, "Préparation du dossier du match")
             runCatching {
-                oddsRepository.analyzeDeep(target) { progress, stage ->
-                    _deepAnalysis.value = DeepAnalysisStatus.Running(target, progress.coerceIn(0.03, 1.0), stage)
+                withContext(Dispatchers.IO) {
+                    oddsRepository.analyzeDeep(target) { progress, stage ->
+                        _deepAnalysis.value = DeepAnalysisStatus.Running(target, progress.coerceIn(0.03, 1.0), stage)
+                    }
                 }
             }.onSuccess { prediction ->
                 val cleaned = prediction.cleanedForDisplay()
@@ -505,7 +513,7 @@ class MainViewModel(
         val deferred = viewModelScope.async(Dispatchers.IO) {
             val prediction = oddsRepository.analyzeDeep(target) { _, _ -> }.cleanedForDisplay()
             deepPredictionCache[cacheKey] = prediction
-            StructuredAnalysisCache.getOrBuild(prediction)
+            withContext(Dispatchers.Default) { StructuredAnalysisCache.getOrBuild(prediction) }
             prediction
         }
         val existing = deepAnalysisTasks.putIfAbsent(cacheKey, deferred)
@@ -775,7 +783,6 @@ private val TEAM_DEEP_SPORTS = setOf(
     "football",
     "handball",
     "volleyball",
-    "field_hockey",
     "cricket",
     "australian_football",
 )
@@ -787,7 +794,6 @@ private val STANDALONE_DEEP_SPORTS = setOf(
     "boxing",
     "nascar",
     "darts",
-    "snooker",
     "athletics",
 )
 

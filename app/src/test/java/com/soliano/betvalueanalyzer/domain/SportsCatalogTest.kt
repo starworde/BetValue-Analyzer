@@ -19,11 +19,12 @@ class SportsCatalogTest {
             "golf",
             "handball",
             "volleyball",
-            "field_hockey",
             "cricket",
             "athletics",
             "mma",
         )))
+        assertTrue(!keys.contains("field_hockey"))
+        assertTrue(!keys.contains("snooker"))
 
         val tennis = SportsCatalog.sports.first { it.key == "tennis" }
         assertTrue(tennis.competitions.any { it.name.contains("Wimbledon") })

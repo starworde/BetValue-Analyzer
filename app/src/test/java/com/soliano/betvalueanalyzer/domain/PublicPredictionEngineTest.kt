@@ -405,6 +405,97 @@ class PublicPredictionEngineTest {
     }
 
     @Test
+    fun volleyballPredictionUsesOnlyVolleyballVocabularyAndMarkets() {
+        val france = TeamStatProfile("France", 8, 6, 0, 2, 76.0, 70.0, sourceAgreement = 86)
+        val italy = TeamStatProfile("Italie", 8, 5, 0, 3, 73.0, 71.0, sourceAgreement = 82)
+
+        val prediction = PublicPredictionEngine.analyze(
+            event(
+                homeOdds = null,
+                awayOdds = null,
+                homeProfile = france,
+                awayProfile = italy,
+                sportKey = "volleyball/vnl",
+                sportTitle = "Volley-ball",
+                homeTeam = "France",
+                awayTeam = "Italie",
+            )
+        ).first()
+        val text = (
+            prediction.market + " " +
+                prediction.selection + " " +
+                prediction.expectedScore.orEmpty() + " " +
+                prediction.explanation + " " +
+                prediction.statSummary.joinToString(" ") + " " +
+                prediction.scenarios.joinToString(" ") { "${it.type} ${it.label}" }
+            ).lowercase()
+        val types = prediction.scenarios.map { it.type }.toSet()
+
+        assertEquals("Vainqueur volley", prediction.market)
+        listOf("score en sets", "points par set", "service", "réception", "contres").forEach { token ->
+            assertTrue("le volley doit contenir '$token' dans $text", text.contains(token))
+        }
+        listOf("Vainqueur volley", "Score en sets", "Total sets", "Handicap sets", "Handicap points", "Total points match", "Total points équipe").forEach { type ->
+            assertTrue("type volley manquant $type parmi $types", type in types)
+        }
+        listOf("buts", "90 minutes", "prolongation").forEach { forbidden ->
+            assertFalse("le volley ne doit pas afficher '$forbidden' dans $text", text.contains(forbidden))
+        }
+    }
+
+    @Test
+    fun handballPredictionUsesRegulationGoalsAndNoSetVocabulary() {
+        val homePlayer = PlayerStatProfile(
+            name = "Arriere Fort",
+            appearances = 6,
+            starts = 6,
+            goals = 31.0,
+            assists = 22.0,
+        )
+        val nantes = TeamStatProfile(
+            "Nantes", 8, 6, 0, 2, 34.0, 29.0,
+            sourceAgreement = 84,
+            playerProfiles = listOf(homePlayer),
+        )
+        val kiel = TeamStatProfile("Kiel", 8, 5, 0, 3, 32.0, 30.0, sourceAgreement = 80)
+
+        val prediction = PublicPredictionEngine.analyze(
+            event(
+                homeOdds = null,
+                awayOdds = null,
+                homeProfile = nantes,
+                awayProfile = kiel,
+                sportKey = "handball/ehf",
+                sportTitle = "Handball",
+                homeTeam = "Nantes",
+                awayTeam = "Kiel",
+            )
+        ).first()
+        val text = (
+            prediction.market + " " +
+                prediction.selection + " " +
+                prediction.expectedScore.orEmpty() + " " +
+                prediction.explanation + " " +
+                prediction.statSummary.joinToString(" ") + " " +
+                prediction.scenarios.joinToString(" ") { "${it.type} ${it.label}" }
+            ).lowercase()
+        val types = prediction.scenarios.map { it.type }.toSet()
+
+        assertEquals("Vainqueur temps réglementaire", prediction.market)
+        listOf("temps réglementaire", "buts", "gardien", "exclusions 2 minutes", "7 m").forEach { token ->
+            assertTrue("le handball doit contenir '$token' dans $text", text.contains(token))
+        }
+        listOf("Vainqueur temps réglementaire", "Double chance handball", "Total buts", "Handicap buts", "Total buts équipe", "Écart handball").forEach { type ->
+            assertTrue("type handball manquant $type parmi $types", type in types)
+        }
+        assertTrue(prediction.playerScenarios.any { it.type == "Joueur · Buts handball" && it.label.contains("buts") })
+        assertFalse(prediction.playerScenarios.any { it.type.contains("Passe") || it.label.contains("passe décisive") })
+        listOf("sets", "90 minutes", "prolongation").forEach { forbidden ->
+            assertFalse("le handball ne doit pas afficher '$forbidden' dans $text", text.contains(forbidden))
+        }
+    }
+
+    @Test
     fun limitedAnalysisUsesDedicatedVocabularyForEveryCatalogSport() {
         val expectedTokens = mapOf(
             "soccer" to listOf("buts", "corners"),
@@ -420,8 +511,6 @@ class PublicPredictionEngineTest {
             "australian_football" to listOf("goals/behinds", "marks"),
             "handball" to listOf("exclusions", "gardiens"),
             "volleyball" to listOf("réception", "aces"),
-            "field_hockey" to listOf("penalty corners", "cartons"),
-            "snooker" to listOf("frames", "centuries"),
             "darts" to listOf("checkout", "180"),
             "cricket" to listOf("wickets", "pitch"),
             "athletics" to listOf("records saison", "startlist"),
@@ -493,7 +582,6 @@ class PublicPredictionEngineTest {
             "nascar" to listOf("Cautions", "Track position", "Fiabilité"),
             "athletics" to listOf("Finale", "Records", "Duel"),
             "darts" to listOf("180", "Checkout", "Moyenne"),
-            "snooker" to listOf("Centuries", "Total frames", "Sécurité"),
         )
 
         checks.forEach { (sportKey, requiredTypes) ->

@@ -25,6 +25,7 @@ class AnalysisRepository(
 
     suspend fun seedIfNeeded() {
         if (sportDao.count() == 0) sportDao.insertAll(defaultSports())
+        sportDao.deleteByNames(listOf("Hockey sur gazon", "Snooker"))
         analysisDao.deleteDemoRecords()
     }
 
@@ -32,12 +33,12 @@ class AnalysisRepository(
         val groups = linkedMapOf(
             "Collectifs" to listOf(
                 "Football", "Basketball", "Rugby à XV", "Rugby à XIII", "Football américain",
-                "Football australien", "Baseball", "Futsal", "Handball", "Hockey sur gazon",
+                "Football australien", "Baseball", "Futsal", "Handball",
                 "Hockey sur glace", "Volley-ball", "Beach-volley", "Water-polo",
             ),
             "Raquette et précision" to listOf(
                 "Tennis", "Tennis de table", "Badminton", "Padel", "Squash", "Golf",
-                "Snooker", "Fléchettes / Darts",
+                "Fléchettes / Darts",
             ),
             "Endurance et hiver" to listOf(
                 "Cyclisme", "Biathlon", "Ski alpin", "Ski de fond", "Saut à ski", "Athlétisme",

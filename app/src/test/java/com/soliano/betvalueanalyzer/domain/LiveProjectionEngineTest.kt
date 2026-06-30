@@ -40,7 +40,7 @@ class LiveProjectionEngineTest {
             "football" to listOf("touchdown", "turnover", "red zone"),
             "australian_football" to listOf("goals", "inside 50", "disposals"),
             "handball" to listOf("exclusion", "gardien", "7m"),
-            "volleyball" to listOf("aces", "réception", "blocks"),
+            "volleyball" to listOf("aces", "réception", "contres"),
             "cricket" to listOf("wicket", "run rate", "batteur"),
             "darts" to listOf("180", "checkout", "legs"),
             "snooker" to listOf("frames", "century", "sécurité"),

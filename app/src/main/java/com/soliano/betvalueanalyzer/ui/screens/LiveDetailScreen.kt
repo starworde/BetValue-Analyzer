@@ -30,6 +30,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -39,6 +40,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.soliano.betvalueanalyzer.data.local.LiveEventEntity
+import com.soliano.betvalueanalyzer.domain.LocalAiReading
+import com.soliano.betvalueanalyzer.domain.LocalAnalysisAssistant
 import com.soliano.betvalueanalyzer.ui.components.cleanDisplayText
 import com.soliano.betvalueanalyzer.ui.components.displayTeamName
 import com.soliano.betvalueanalyzer.ui.components.formatDate
@@ -67,6 +70,7 @@ fun LiveDetailScreen(
     onBack: () -> Unit,
 ) {
     val accent = if (event.isLive || event.hasLiveMainMetric()) Mint else liveDetailSportAccent(event.sportKey)
+    val aiReading = remember(event) { LocalAnalysisAssistant.explainLive(event) }
     val scenarioLines = event.scenarios.toLiveDetailScenarios()
     val statLines = event.statSummary.lines().map { it.trim() }.filter { it.isNotBlank() }
     val sportPackLines = statLines.filter(::isLiveDetailSportIntelligenceLine)
@@ -125,6 +129,11 @@ fun LiveDetailScreen(
                 Text("${event.liveProgressLabel()} : ${cleanDisplayText(event.liveProgressText())}", color = Amber, fontWeight = FontWeight.Bold)
             }
         }
+        item {
+            LiveDetailSection("Lecture IA live", Icons.Outlined.Info, accent) {
+                LiveLocalAiReadingCard(aiReading, accent)
+            }
+        }
         if (scenarioLines.isNotEmpty()) {
             item {
                 LiveDetailSection("Pronostics live", Icons.AutoMirrored.Outlined.TrendingUp, Mint) {
@@ -158,6 +167,43 @@ fun LiveDetailScreen(
                         Text("• ${cleanDisplayText(source)}", color = TextSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LiveLocalAiReadingCard(reading: LocalAiReading, accent: Color) {
+    val mainAnalysis = reading.sections.firstOrNull { it.title.startsWith("Analyse IA", ignoreCase = true) }
+    Surface(shape = RoundedCornerShape(22.dp), color = accent.copy(alpha = 0.10f), border = BorderStroke(1.dp, accent.copy(alpha = 0.18f))) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                LiveDetailTag(reading.status.label, accent)
+                Text("local · recalcul live", style = MaterialTheme.typography.labelMedium, color = TextSecondary)
+            }
+            Text(cleanDisplayText(reading.summary), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+            Text(cleanDisplayText(reading.sportVocabulary), style = MaterialTheme.typography.labelMedium, color = TextSecondary)
+            if (mainAnalysis != null) {
+                LiveLocalAiBlock(mainAnalysis.title, mainAnalysis.lines, accent, maxLines = 5)
+            }
+            LiveLocalAiBlock("Signaux utiles", reading.importantSignals, Mint)
+            val pointsToCheck = (reading.contradictions + reading.missingData)
+                .filterNot { it.startsWith("Aucune contradiction", ignoreCase = true) || it.startsWith("Aucun manque", ignoreCase = true) }
+                .ifEmpty { listOf("Aucun fait relevé") }
+            LiveLocalAiBlock("À vérifier", pointsToCheck, Amber)
+            LiveLocalAiBlock("Fiabilité", reading.reliability.take(3), Blue)
+            Text(cleanDisplayText(reading.conclusion), style = MaterialTheme.typography.bodyMedium, color = accent, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+private fun LiveLocalAiBlock(title: String, lines: List<String>, color: Color, maxLines: Int = 3) {
+    Surface(shape = RoundedCornerShape(16.dp), color = SurfaceHigh.copy(alpha = 0.78f)) {
+        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(title, style = MaterialTheme.typography.labelLarge, color = color, fontWeight = FontWeight.Black)
+            lines.take(maxLines).forEach { line ->
+                Text("• ${cleanDisplayText(line)}", color = TextSecondary, style = MaterialTheme.typography.bodyMedium)
             }
         }
     }

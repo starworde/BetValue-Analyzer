@@ -92,31 +92,49 @@ fun HomeScreen(
     var filter by remember { mutableStateOf(AutomaticFilter.All) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
-    val ordered = state.topPredictions
-    val visible = when (filter) {
-        AutomaticFilter.All -> ordered
-        AutomaticFilter.Safe -> ordered.filter { predictionCategoryKey(it.category) == "safe" }
-        AutomaticFilter.Mixed -> ordered.filter { predictionCategoryKey(it.category) == "mitige" }
-        AutomaticFilter.Exotic -> ordered.filter { predictionCategoryKey(it.category) == "exotique" }
+    val ordered = remember(state.predictions, state.settings.favoriteSports, state.settings.favoriteCompetitions) {
+        state.topPredictions
+    }
+    val automaticBets = remember(state.predictions) { state.automaticValueBets }
+    val visible = remember(filter, ordered) {
+        when (filter) {
+            AutomaticFilter.All -> ordered
+            AutomaticFilter.Safe -> ordered.filter { predictionCategoryKey(it.category) == "safe" }
+            AutomaticFilter.Mixed -> ordered.filter { predictionCategoryKey(it.category) == "mitige" }
+            AutomaticFilter.Exotic -> ordered.filter { predictionCategoryKey(it.category) == "exotique" }
+        }
     }
     val syncing = state.syncStatus == SyncStatus.Syncing
     val staleData = state.settings.lastSyncEpoch > 0L &&
         System.currentTimeMillis() - state.settings.lastSyncEpoch > 2 * 60 * 60 * 1000L
-    val now = System.currentTimeMillis()
+    val now = remember(state.upcomingEvents, state.liveEvents) { System.currentTimeMillis() }
     val today = LocalDate.now()
     val tomorrow = today.plusDays(1)
-    val liveNow = state.liveEvents.filter { it.isLive }.take(8)
-    val todayEvents = state.upcomingEvents
-        .filter { it.commenceTime >= now && eventLocalDate(it.commenceTime) == today }
-        .take(10)
-    val tomorrowEvents = state.upcomingEvents
-        .filter { eventLocalDate(it.commenceTime) == tomorrow }
-        .take(10)
-    val watchEvents = state.upcomingEvents
-        .filter { it.commenceTime >= now && it.analysisId == null }
-        .take(10)
-    val favoriteCompetitionEvents = state.favoriteCompetitionUpcomingEvents
-    val favoriteSportEvents = state.favoriteSportUpcomingEvents
+    val liveNow = remember(state.liveEvents) { state.liveEvents.filter { it.isLive }.take(8) }
+    val todayEvents = remember(state.upcomingEvents, now, today) {
+        state.upcomingEvents
+            .filter { it.commenceTime >= now && eventLocalDate(it.commenceTime) == today }
+            .take(10)
+    }
+    val tomorrowEvents = remember(state.upcomingEvents, tomorrow) {
+        state.upcomingEvents
+            .filter { eventLocalDate(it.commenceTime) == tomorrow }
+            .take(10)
+    }
+    val watchEvents = remember(state.upcomingEvents, now) {
+        state.upcomingEvents
+            .filter { it.commenceTime >= now && it.analysisId == null }
+            .take(10)
+    }
+    val favoriteCompetitionEvents = remember(state.upcomingEvents, state.settings.favoriteCompetitions) {
+        state.favoriteCompetitionUpcomingEvents
+    }
+    val favoriteSportEvents = remember(state.upcomingEvents, state.settings.favoriteSports, state.settings.favoriteCompetitions) {
+        state.favoriteSportUpcomingEvents
+    }
+    val nextStart = remember(state.upcomingEvents, now) {
+        state.upcomingEvents.firstOrNull { it.commenceTime > now }?.commenceTime
+    }
     val showFavoriteHub = state.hasConfiguredFavorites || favoriteCompetitionEvents.isNotEmpty() || favoriteSportEvents.isNotEmpty()
     val analysisSectionIndex = 3 +
         (if (showFavoriteHub) 1 else 0) +
@@ -165,12 +183,12 @@ fun HomeScreen(
                         LiveKpi(Icons.Outlined.Bolt, state.upcomingEvents.size.toString(), t(language, "événements", "events", "eventos", "Ereignisse"), Mint)
                         LiveKpi(
                             Icons.Outlined.AutoGraph,
-                            state.automaticValueBets.size.toString(),
+                            automaticBets.size.toString(),
                             t(language, "signaux forts", "strong signals", "señales fuertes", "starke Signale"),
                             Violet,
                             onClick = showStrongSignals,
                         )
-                        LiveKpi(Icons.Outlined.Schedule, state.upcomingEvents.filter { it.commenceTime > System.currentTimeMillis() }.minByOrNull { it.commenceTime }?.let { formatDate(it.commenceTime) } ?: "—", t(language, "prochain départ", "next start", "próximo inicio", "nächster Start"), Amber)
+                        LiveKpi(Icons.Outlined.Schedule, nextStart?.let { formatDate(it) } ?: "—", t(language, "prochain départ", "next start", "próximo inicio", "nächster Start"), Amber)
                     }
                     val syncText = when (val status = state.syncStatus) {
                         SyncStatus.Idle -> t(language, "Le flux public est prêt", "Public feed ready", "Flujo público listo", "Öffentlicher Feed bereit")
@@ -564,7 +582,6 @@ private fun UpcomingEventEntity.deepAnalysisAvailable(): Boolean = sportKey.subs
     "football",
     "handball",
     "volleyball",
-    "field_hockey",
     "cricket",
     "australian_football",
     "tennis",
@@ -573,15 +590,14 @@ private fun UpcomingEventEntity.deepAnalysisAvailable(): Boolean = sportKey.subs
     "boxing",
     "nascar",
     "darts",
-    "snooker",
     "athletics",
     "racing",
     "cycling",
 ) || eventType == "GP"
 
 private fun sportAccent(sportKey: String): Color = when (sportKey.substringBefore('/')) {
-    "soccer", "rugby", "golf", "snooker", "darts" -> Mint
-    "basketball", "baseball", "football", "hockey", "handball", "volleyball", "field_hockey", "australian_football", "cricket" -> Blue
+    "soccer", "rugby", "golf", "darts" -> Mint
+    "basketball", "baseball", "football", "hockey", "handball", "volleyball", "australian_football", "cricket" -> Blue
     "cycling", "athletics" -> Amber
     "racing", "nascar", "tennis" -> Violet
     "mma", "boxing" -> Danger

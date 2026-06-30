@@ -35,6 +35,7 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -75,7 +76,9 @@ import com.soliano.betvalueanalyzer.ui.theme.Violet
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 
 @Composable
 fun SportsScreen(
@@ -123,9 +126,13 @@ fun SportsScreen(
     }
     val normalizedQuery = remember(appliedSearchQuery) { normalizedSearchText(appliedSearchQuery) }
     val searchActive = normalizedQuery.isNotBlank()
-    val eventSearchIndex = remember(state.upcomingEvents) {
-        state.upcomingEvents.map { event ->
-            SearchableEvent(event, normalizedSearchText(searchableText(event)))
+    var eventSearchIndex by remember { mutableStateOf(emptyList<SearchableEvent>()) }
+    LaunchedEffect(state.upcomingEvents) {
+        val eventsSnapshot = state.upcomingEvents
+        eventSearchIndex = withContext(Dispatchers.Default) {
+            eventsSnapshot.map { event ->
+                SearchableEvent(event, normalizedSearchText(searchableText(event)))
+            }
         }
     }
 
@@ -166,14 +173,18 @@ fun SportsScreen(
                     .thenBy { cleanDisplayText(it.name) }
             )
     }
-    val competitionSearchIndex = remember(allCompetitions, sports) {
+    var competitionSearchIndex by remember { mutableStateOf(emptyList<SearchableCompetition>()) }
+    LaunchedEffect(allCompetitions, sports) {
+        val competitionsSnapshot = allCompetitions
         val sportNames = sports.associate { it.key to it.name }
-        allCompetitions.map { competition ->
-            val sportName = sportNames[competition.sportKey].orEmpty()
-            SearchableCompetition(
-                competition = competition,
-                searchText = normalizedSearchText(searchableText(listOf(sportName, competition.name))),
-            )
+        competitionSearchIndex = withContext(Dispatchers.Default) {
+            competitionsSnapshot.map { competition ->
+                val sportName = sportNames[competition.sportKey].orEmpty()
+                SearchableCompetition(
+                    competition = competition,
+                    searchText = normalizedSearchText(searchableText(listOf(sportName, competition.name))),
+                )
+            }
         }
     }
     val matchingCompetitions = remember(searchActive, competitionSearchIndex, normalizedQuery, competitions) {
@@ -189,26 +200,25 @@ fun SportsScreen(
             competitions
         }
     }
-    val visibleEvents = remember(eventSearchIndex, searchActive, normalizedQuery, selectedSport, selectedCompetition) {
-        val events = if (searchActive) {
-            eventSearchIndex
-                .asSequence()
-                .filter { matchesNormalizedSearch(it.searchText, normalizedQuery) }
-                .map { it.event }
-                .sortedBy { it.commenceTime }
-                .take(MAX_SPORT_SEARCH_RESULTS)
-                .toList()
-        } else {
-            eventSearchIndex
-                .asSequence()
-                .map { it.event }
-                .filter { event ->
-                    event.sportKey == selectedSport && (selectedCompetition == null || event.competitionKey == selectedCompetition)
-                }
-                .sortedBy { it.commenceTime }
-                .toList()
+    val visibleEvents by remember(eventSearchIndex, futureEvents, searchActive, normalizedQuery, selectedSport, selectedCompetition) {
+        derivedStateOf {
+            if (searchActive) {
+                eventSearchIndex
+                    .asSequence()
+                    .filter { matchesNormalizedSearch(it.searchText, normalizedQuery) }
+                    .map { it.event }
+                    .sortedBy { it.commenceTime }
+                    .take(MAX_SPORT_SEARCH_RESULTS)
+                    .toList()
+            } else {
+                futureEvents
+                    .asSequence()
+                    .filter { event ->
+                        event.sportKey == selectedSport && (selectedCompetition == null || event.competitionKey == selectedCompetition)
+                    }
+                    .toList()
+            }
         }
-        events
     }
     val analysesById = remember(state.predictions) { state.predictions.associateBy { it.id } }
     val syncing = state.syncStatus == SyncStatus.Syncing
@@ -657,7 +667,6 @@ private fun UpcomingEventEntity.deepAnalysisAvailable(): Boolean = sportKey.subs
     "football",
     "handball",
     "volleyball",
-    "field_hockey",
     "cricket",
     "australian_football",
     "tennis",
@@ -666,15 +675,14 @@ private fun UpcomingEventEntity.deepAnalysisAvailable(): Boolean = sportKey.subs
     "boxing",
     "nascar",
     "darts",
-    "snooker",
     "athletics",
     "racing",
     "cycling",
 ) || eventType == "GP"
 
 private fun sportAccent(sportKey: String): Color = when (sportKey.substringBefore('/')) {
-    "soccer", "rugby", "golf", "snooker", "darts" -> Mint
-    "basketball", "baseball", "football", "hockey", "handball", "volleyball", "field_hockey", "australian_football", "cricket" -> Blue
+    "soccer", "rugby", "golf", "darts" -> Mint
+    "basketball", "baseball", "football", "hockey", "handball", "volleyball", "australian_football", "cricket" -> Blue
     "cycling", "athletics" -> Amber
     "racing", "nascar", "tennis" -> Violet
     "mma", "boxing" -> Danger

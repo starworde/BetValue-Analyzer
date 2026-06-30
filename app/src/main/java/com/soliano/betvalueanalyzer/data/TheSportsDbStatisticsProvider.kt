@@ -103,13 +103,12 @@ class TheSportsDbStatisticsProvider(private val api: PublicSportsApiService) {
         "australian_football" -> setOf("Australian Rules Football", "Australian Football")
         "handball" -> setOf("Handball")
         "volleyball" -> setOf("Volleyball")
-        "field_hockey" -> setOf("Field Hockey")
         "cricket" -> setOf("Cricket")
         else -> emptySet()
     }
 
     private fun maxReasonableTotal(sport: String): Double = when (sport.substringBefore('/')) {
-        "soccer", "hockey", "field_hockey", "volleyball" -> 18.0
+        "soccer", "hockey", "volleyball" -> 18.0
         "baseball" -> 45.0
         "rugby", "handball" -> 95.0
         "basketball", "football", "australian_football" -> 260.0

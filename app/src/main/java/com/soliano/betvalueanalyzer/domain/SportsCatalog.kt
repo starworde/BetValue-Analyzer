@@ -73,11 +73,6 @@ object SportsCatalog {
             competition("volleyball", "tsdb-5613", "Championnat d'Europe masculin"),
             competition("volleyball", "tsdb-5614", "CEV Challenge Cup"),
         )),
-        CatalogSport("field_hockey", "Hockey sur gazon", listOf(
-            competition("field_hockey", "tsdb-5813", "EuroHockey Championship"),
-            competition("field_hockey", "tsdb-5812", "Pan American Cup"),
-        )),
-        CatalogSport("snooker", "Snooker", listOf(competition("snooker", "tsdb-4555", "World Snooker"))),
         CatalogSport("darts", "Fléchettes", listOf(competition("darts", "tsdb-4554", "PDC Darts"))),
         CatalogSport("cricket", "Cricket", listOf(
             competition("cricket", "tsdb-4461", "Big Bash League"),

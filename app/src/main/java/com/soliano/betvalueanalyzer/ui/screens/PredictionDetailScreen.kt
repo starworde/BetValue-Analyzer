@@ -49,6 +49,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.soliano.betvalueanalyzer.data.local.PredictionEntity
+import com.soliano.betvalueanalyzer.domain.LocalAiReading
+import com.soliano.betvalueanalyzer.domain.LocalAnalysisAssistant
 import com.soliano.betvalueanalyzer.ui.t
 import com.soliano.betvalueanalyzer.ui.components.StructuredActorBlock
 import com.soliano.betvalueanalyzer.ui.components.StructuredActorStatRequirementBlock
@@ -96,6 +98,7 @@ fun PredictionDetailScreen(
     onBack: () -> Unit,
 ) {
     val accent = categoryColor(prediction.category)
+    val aiReading = remember(prediction) { LocalAnalysisAssistant.explain(prediction) }
     var dossier by remember(prediction.id) { mutableStateOf(StructuredAnalysisCache.get(prediction)) }
     LaunchedEffect(
         prediction.id,
@@ -180,6 +183,12 @@ fun PredictionDetailScreen(
                         accent = accent,
                     )
                 }
+            }
+        }
+
+        item {
+            PredictionSection("Lecture IA", Icons.Outlined.Info, accent) {
+                LocalAiReadingCard(aiReading, accent)
             }
         }
 
@@ -1413,6 +1422,48 @@ private fun String.canonicalNameKey(): String =
         .replace("ç", "c")
         .replace(Regex("[^a-z0-9,./%]+"), " ")
         .trim()
+
+@Composable
+private fun LocalAiReadingCard(reading: LocalAiReading, accent: Color) {
+    val mainAnalysis = reading.sections.firstOrNull { it.title.startsWith("Analyse IA", ignoreCase = true) }
+    Surface(shape = RoundedCornerShape(22.dp), color = accent.copy(alpha = 0.10f)) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Tag(reading.status.label, accent)
+                Text("local · sans clé API", style = MaterialTheme.typography.labelMedium, color = TextSecondary)
+            }
+            Text(cleanDisplayText(reading.summary), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+            Text(cleanDisplayText(reading.sportVocabulary), style = MaterialTheme.typography.labelMedium, color = TextSecondary)
+
+            if (mainAnalysis != null) {
+                LocalAiMiniBlock(mainAnalysis.title, mainAnalysis.lines, accent, maxLines = 5)
+            }
+            LocalAiMiniBlock("Signaux utiles", reading.importantSignals, Mint)
+            val pointsToCheck = (reading.contradictions + reading.missingData)
+                .filterNot { it.startsWith("Aucune contradiction", ignoreCase = true) || it.startsWith("Aucun manque", ignoreCase = true) }
+                .ifEmpty { listOf(NO_RECENT_FACT_LINE) }
+            LocalAiMiniBlock("À vérifier", pointsToCheck, Amber)
+            LocalAiMiniBlock("Fiabilité", reading.reliability.take(3), Blue)
+            Text(cleanDisplayText(reading.conclusion), style = MaterialTheme.typography.bodyMedium, color = accent, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+private fun LocalAiMiniBlock(title: String, lines: List<String>, color: Color, maxLines: Int = 3) {
+    Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f)) {
+        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(title, style = MaterialTheme.typography.labelLarge, color = color, fontWeight = FontWeight.Black)
+            lines.take(maxLines).forEach { line ->
+                Text("• ${cleanDisplayText(line)}", color = TextSecondary, style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+    }
+}
 
 @Composable
 private fun PronosticExpressCard(

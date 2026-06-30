@@ -88,7 +88,7 @@ fun LiveScreen(
                             Column(verticalArrangement = Arrangement.spacedBy(5.dp), modifier = Modifier.weight(1f)) {
                                 Text("LIVE RADAR", style = MaterialTheme.typography.labelLarge, color = Mint)
                                 Text(t(language, "Matchs & événements en direct", "Live matches & events", "Partidos y eventos en vivo", "Live-Spiele & Ereignisse"), style = MaterialTheme.typography.headlineMedium)
-                                Text(t(language, "$liveNow live · ${state.liveEvents.size} suivis aujourd'hui", "$liveNow live · ${state.liveEvents.size} tracked today", "$liveNow en vivo · ${state.liveEvents.size} seguidos hoy", "$liveNow live · ${state.liveEvents.size} heute verfolgt"), color = TextSecondary)
+                                Text(t(language, "$liveNow en cours · ${state.liveEvents.size} dans la fenêtre live", "$liveNow live · ${state.liveEvents.size} in live window", "$liveNow en vivo · ${state.liveEvents.size} en ventana live", "$liveNow live · ${state.liveEvents.size} im Live-Fenster"), color = TextSecondary)
                             }
                             Surface(shape = CircleShape, color = Mint.copy(alpha = 0.12f), border = BorderStroke(1.dp, Mint.copy(alpha = 0.38f))) {
                                 IconButton(onClick = onRefresh, enabled = !syncing) {
@@ -97,7 +97,7 @@ fun LiveScreen(
                                 }
                             }
                         }
-                        Text(t(language, "Score ou classement + temps/tours/session affichés selon le sport.", "Score or ranking + time/laps/session depending on the sport.", "Marcador o clasificación + tiempo/vueltas/sesión según el deporte.", "Score oder Rangliste + Zeit/Runden/Session je nach Sport."), color = TextSecondary)
+                        Text(t(language, "Affiche uniquement : live en cours, terminé depuis moins de 30 min ou départ dans moins de 30 min.", "Shows only: currently live, finished within 30 min, or starting within 30 min.", "Solo muestra: en vivo, terminado hace menos de 30 min o inicio en menos de 30 min.", "Zeigt nur: live, seit weniger als 30 Min. beendet oder Start in unter 30 Min."), color = TextSecondary)
                     }
                 }
             }
@@ -116,7 +116,7 @@ fun LiveScreen(
                             if (syncing) {
                                 t(language, "Connexion aux scoreboards publics : scores, temps de jeu, classements et statuts.", "Connecting to public scoreboards: scores, clocks, rankings and status.", "Conexión a marcadores públicos: resultados, tiempo, clasificaciones y estado.", "Verbindung zu öffentlichen Scoreboards: Scores, Uhr, Ranglisten und Status.")
                             } else {
-                                t(language, "Appuie sur Actualiser pour relancer la détection des matchs en cours et résultats récents.", "Tap refresh to search live matches and recent results again.", "Pulsa actualizar para buscar partidos en vivo y resultados recientes.", "Tippe Aktualisieren, um Live-Spiele und aktuelle Ergebnisse neu zu suchen.")
+                                t(language, "Appuie sur Actualiser pour chercher les lives en cours, les résultats de moins de 30 min et les départs dans moins de 30 min.", "Tap refresh to search current live events, results under 30 min old and starts within 30 min.", "Pulsa actualizar para buscar directos, resultados de menos de 30 min e inicios en menos de 30 min.", "Tippe Aktualisieren für Live-Events, Ergebnisse unter 30 Min. und Starts in unter 30 Min.")
                             },
                             color = TextSecondary,
                         )

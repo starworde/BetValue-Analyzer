@@ -32,6 +32,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.soliano.betvalueanalyzer.BuildConfig
+import com.soliano.betvalueanalyzer.domain.SportIntelligenceCatalog
+import com.soliano.betvalueanalyzer.domain.SportsCatalog
 import com.soliano.betvalueanalyzer.ui.AppUiState
 import com.soliano.betvalueanalyzer.ui.SyncStatus
 import com.soliano.betvalueanalyzer.ui.t
@@ -45,6 +47,7 @@ import com.soliano.betvalueanalyzer.ui.theme.SurfaceHigh
 import com.soliano.betvalueanalyzer.ui.theme.TextSecondary
 import com.soliano.betvalueanalyzer.ui.theme.Violet
 import java.util.Locale
+import kotlin.math.roundToInt
 
 @Composable
 fun SettingsScreen(
@@ -266,6 +269,11 @@ private fun SourceHealthSection(state: AppUiState, language: String) {
                     DiagnosticRow(row.label, row.value, row.statusColor)
                 }
             }
+            HorizontalDivider(color = Divider)
+            Text(t(language, "Diagnostic détaillé par sport", "Detailed sport diagnostics", "Diagnóstico detallado por deporte", "Detaillierte Sportdiagnose"), style = MaterialTheme.typography.titleMedium, color = Violet)
+            sourceHealthSportDiagnosticRows(state, language).forEach { row ->
+                DiagnosticRow(row.label, row.value, row.statusColor)
+            }
         }
     }
 }
@@ -278,7 +286,7 @@ private fun DiagnosticRow(label: String, value: String, color: androidx.compose.
     }
 }
 
-private data class SourceHealthRow(
+internal data class SourceHealthRow(
     val label: String,
     val value: String,
     val statusColor: androidx.compose.ui.graphics.Color,
@@ -366,6 +374,92 @@ private fun sourceHealthSportRows(state: AppUiState): List<SourceHealthRow> =
         .sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key })
         .take(10)
         .map { SourceHealthRow(it.key, "${it.value} événement(s)", Mint) }
+
+internal fun sourceHealthSportDiagnosticRows(state: AppUiState, language: String): List<SourceHealthRow> {
+    val catalog = SportsCatalog.sports.associateBy { it.key }
+    val dynamicKeys = (
+        state.upcomingEvents.map { it.sportKey.substringBefore('/') } +
+            state.predictions.map { it.sportKey.substringBefore('/') } +
+            state.liveEvents.map { it.sportKey.substringBefore('/') }
+        ).filter { it.isNotBlank() }
+    val keys = (SportsCatalog.sports.map { it.key } + dynamicKeys).distinct()
+    return keys.map { sportKey ->
+        val events = state.upcomingEvents.filter { it.sportKey.substringBefore('/') == sportKey }
+        val predictions = state.predictions.filter { it.sportKey.substringBefore('/') == sportKey }
+        val lives = state.liveEvents.filter { it.sportKey.substringBefore('/') == sportKey }
+        val sources = (
+            events.map { it.sourceName } +
+                predictions.map { it.sourceName } +
+                lives.flatMap { live -> listOf(live.sourceName) + live.sourceDetails.split("·", ",") }
+            )
+            .map(::cleanDisplayText)
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinctBy { it.lowercase(Locale.FRANCE) }
+        val profile = SportIntelligenceCatalog.profile(sportKey)
+        val allSummary = predictions.joinToString(" ") { "${it.statSummary} ${it.scenarios} ${it.playerScenarios}" }
+            .lowercase(Locale.FRANCE)
+        val matchedStats = profile.watchedStats.filter { stat -> statMatchesSummary(stat, allSummary) }
+        val availableStats = buildList {
+            if (events.isNotEmpty() || lives.isNotEmpty()) add("calendrier")
+            if (events.any { it.competitionName.isNotBlank() } || predictions.any { it.competitionName.isNotBlank() }) add("compétition")
+            if (events.isNotEmpty() || predictions.isNotEmpty()) add("équipes")
+            if (sources.isNotEmpty()) add("source")
+            if (predictions.isNotEmpty()) add("analyse")
+            if (lives.isNotEmpty()) add("live")
+            addAll(matchedStats)
+        }.distinct().take(12)
+        val missingStats = profile.watchedStats
+            .filterNot { stat -> availableStats.any { it.equals(stat, ignoreCase = true) } || statMatchesSummary(stat, allSummary) }
+            .take(10)
+        val lastUpdate = listOf(
+            state.settings.lastSyncEpoch,
+            predictions.maxOfOrNull { it.sourceLastUpdate } ?: 0L,
+        ).maxOrNull() ?: 0L
+        val confidenceLabel = when {
+            predictions.isNotEmpty() -> "${predictions.map { it.confidenceScore }.average().roundToInt()}/100"
+            events.isNotEmpty() || lives.isNotEmpty() -> t(language, "surveillance seulement", "watch only", "solo vigilancia", "nur Beobachtung")
+            else -> t(language, "aucune donnée publiée", "no published data", "sin dato publicado", "keine Daten veröffentlicht")
+        }
+        val countLabel = "${events.size + lives.size} match(s)/événement(s)"
+        val sourceLabel = sources.take(3).joinToString(", ").ifBlank {
+            t(language, "aucune source active", "no active source", "sin fuente activa", "keine aktive Quelle")
+        }
+        val updateLabel = if (lastUpdate > 0L) formatDate(lastUpdate) else t(language, "jamais", "never", "nunca", "nie")
+        val availableLabel = availableStats.joinToString(", ").ifBlank {
+            t(language, "aucune stat exploitable", "no usable stat", "sin stat utilizable", "keine nutzbare Statistik")
+        }
+        val missingLabel = missingStats.joinToString(", ").ifBlank {
+            t(language, "aucune stat clé manquante", "no key stat missing", "sin stat clave faltante", "keine Kernstatistik fehlt")
+        }
+        SourceHealthRow(
+            catalog[sportKey]?.name ?: sportKey,
+            t(
+                language,
+                "$countLabel · source : $sourceLabel · MAJ : $updateLabel · stats dispo : $availableLabel · stats manquantes : $missingLabel · confiance : $confidenceLabel",
+                "$countLabel · source: $sourceLabel · updated: $updateLabel · available stats: $availableLabel · missing stats: $missingLabel · confidence: $confidenceLabel",
+                "$countLabel · fuente: $sourceLabel · act.: $updateLabel · stats disp.: $availableLabel · stats faltantes: $missingLabel · confianza: $confidenceLabel",
+                "$countLabel · Quelle: $sourceLabel · Update: $updateLabel · verfügbare Stats: $availableLabel · fehlende Stats: $missingLabel · Vertrauen: $confidenceLabel",
+            ),
+            when {
+                predictions.isNotEmpty() -> Mint
+                events.isNotEmpty() || lives.isNotEmpty() -> Blue
+                else -> TextSecondary
+            },
+        )
+    }
+}
+
+private fun statMatchesSummary(stat: String, summary: String): Boolean {
+    if (summary.isBlank()) return false
+    val cleaned = cleanDisplayText(stat).lowercase(Locale.FRANCE)
+    val candidates = buildList {
+        add(cleaned)
+        add(cleaned.substringBefore(" "))
+        cleaned.split("/", " ", "-", "·").filter { it.length >= 4 }.forEach(::add)
+    }.map { it.trim() }.filter { it.length >= 3 }.distinct()
+    return candidates.any { it in summary }
+}
 
 private fun firestoreStatus(
     enabled: Boolean,

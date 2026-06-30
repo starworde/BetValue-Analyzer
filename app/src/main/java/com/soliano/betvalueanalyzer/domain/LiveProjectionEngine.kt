@@ -261,7 +261,7 @@ object LiveProjectionEngine {
         "hockey", "field_hockey" -> "vainqueur live, total buts, prochain but, tirs, power play/penalty corner, gardien et discipline"
         "football", "australian_football" -> "vainqueur live, total points, prochain touchdown/score, yards, turnovers, sacks et blessures"
         "handball" -> "vainqueur live, total buts, prochain but, arrêts gardien, exclusions, pertes de balle et rotations"
-        "volleyball" -> "vainqueur live, score en sets, total points, prochain break, aces, blocks, réception et erreurs"
+        "volleyball" -> "vainqueur live, score en sets, total points, prochain break, aces, contres, réception et erreurs"
         "cricket" -> "vainqueur live, total runs, wickets, run rate, batteurs, lanceurs, overs et météo/pitch"
         "darts" -> "vainqueur live, score legs/sets, 180, checkout, moyenne 3 fléchettes et pression doubles"
         "snooker" -> "vainqueur live, score frames, centuries, breaks 50+, sécurité, erreurs et format"
@@ -484,7 +484,7 @@ object LiveProjectionEngine {
             displayName = "volley",
             unit = "points",
             marginUnit = "point(s)",
-            keyStats = "sets, points par set, aces, réception, blocks, efficacité attaque, erreurs directes et rotations",
+            keyStats = "sets, points par set, aces, réception, contres, efficacité attaque, erreurs directes et rotations",
             contextStats = "réception, passeur, service agressif, rotations, fatigue tournoi et matchup au filet",
             nextAction = "point/break",
             nextActionType = "Prochain break",
@@ -499,7 +499,7 @@ object LiveProjectionEngine {
             extraScenarios = { _, _, remaining, _ -> listOf(
                 ProbabilityScenario("Set supplémentaire possible si réception équilibrée", (0.42 + remaining * 0.22).coerceAtMost(0.72), "Sets"),
                 ProbabilityScenario("Aces/erreurs directes peuvent créer le prochain break", 0.56, "Service"),
-                ProbabilityScenario("Blocks au filet à surveiller sur matchup central", 0.51, "Blocks"),
+                ProbabilityScenario("Contres au filet à surveiller sur matchup central", 0.51, "Contres"),
             ) },
         )
         "cricket" -> LiveSportProfile(
@@ -668,7 +668,7 @@ object LiveProjectionEngine {
             "hockey", "field_hockey" -> listOf("hockey", "buts, tirs, power play, pénalités, gardiens et possession", "gardiens, supériorités numériques, fatigue et discipline", "but")
             "football", "australian_football" -> listOf("football", "touchdowns, yards, turnovers, quarterback, possessions et météo", "QB, blessures, turnovers, terrain et gestion horloge", "touchdown/score")
             "handball" -> listOf("handball", "buts, arrêts gardien, exclusions, pertes de balle, rythme et efficacité ailes/pivots", "gardiens, exclusions, rotations, jeu rapide et fatigue", "but")
-            "volleyball" -> listOf("volley", "sets, points, aces, réception, blocks, efficacité attaque et erreurs", "réception, passeur, rotations, service et fautes directes", "point/break")
+            "volleyball" -> listOf("volley", "sets, points, aces, réception, contres, efficacité attaque et erreurs", "réception, passeur, rotations, service et fautes directes", "point/break")
             "cricket" -> listOf("cricket", "runs, wickets, overs, run rate, pitch, batteurs et lanceurs", "toss, météo, pitch, wickets en main et run rate requis", "wicket/run")
             "darts" -> listOf("fléchettes", "moyenne 3 fléchettes, checkout, 180, legs/sets et doubles", "checkout, pression, format, legs restants et réussite doubles", "leg/checkout")
             "snooker" -> listOf("snooker", "frames, breaks, centuries, safety, erreurs et format", "frames restants, scoring, sécurité, table et pression", "frame/break")
