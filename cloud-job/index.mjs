@@ -7,6 +7,7 @@ const MAX_EVENTS_PER_SOURCE = Number.parseInt(process.env.MAX_EVENTS_PER_SOURCE 
 const MAX_RESULTS_TO_WRITE = Number.parseInt(process.env.MAX_RESULTS_TO_WRITE ?? "1200", 10);
 const MAX_NEWS_EVENTS = Number.parseInt(process.env.MAX_NEWS_EVENTS ?? "80", 10);
 const HTTP_TIMEOUT_MS = Number.parseInt(process.env.HTTP_TIMEOUT_MS ?? "16000", 10);
+const MAX_REMOVED_SPORT_DELETES = Number.parseInt(process.env.MAX_REMOVED_SPORT_DELETES ?? "120", 10);
 const USER_AGENT = "BetValueAnalyzer-GitHubActions/1.0 (+public sports schedules)";
 const REMOVED_SPORTS = new Set(["snooker", "australian_football", "darts", "cricket", "field_hockey"]);
 const isRemovedSport = (sport) => REMOVED_SPORTS.has(String(sport || "").split("/")[0]);
@@ -123,6 +124,8 @@ const diagnostics = {
   resultsPrepared: 0,
   resultsWritten: 0,
   removedSportDocumentsDeleted: 0,
+  firestoreError: "",
+  firestoreCleanupError: "",
   newsChecked: 0,
   newsWithSignals: 0,
 };
@@ -166,6 +169,8 @@ async function main() {
       eventsFound: diagnostics.eventsFound,
       resultsPrepared: diagnostics.resultsPrepared,
       removedSportDocumentsDeleted: diagnostics.removedSportDocumentsDeleted,
+      firestoreError: diagnostics.firestoreError,
+      firestoreCleanupError: diagnostics.firestoreCleanupError,
       sourceErrors: diagnostics.sourceErrors.length,
       sourceErrorDetails: diagnostics.sourceErrors.slice(0, 10),
       newsChecked: diagnostics.newsChecked,
@@ -184,10 +189,32 @@ async function main() {
   }
 
   const db = await initializeFirestore();
-  await deleteRemovedSports(db);
-  const written = await writeCloudResults(db, results);
-  diagnostics.resultsWritten = written;
-  await writeDiagnostic(db, { status: "success" });
+  try {
+    await deleteRemovedSports(db);
+    const written = await writeCloudResults(db, results);
+    diagnostics.resultsWritten = written;
+    await writeDiagnostic(db, { status: "success" });
+  } catch (error) {
+    const message = compactText(error?.stack || error?.message || String(error), 1800);
+    diagnostics.firestoreError = compactText(error?.message || String(error), 320);
+    if (isFirestoreQuotaError(error)) {
+      console.warn(`Firestore quota exceeded; job kept green and will retry on next scheduled run. ${diagnostics.firestoreError}`);
+      console.log(JSON.stringify({
+        status: "partial-firestore-quota",
+        eventsFound: diagnostics.eventsFound,
+        resultsPrepared: diagnostics.resultsPrepared,
+        resultsWritten: diagnostics.resultsWritten,
+        removedSportDocumentsDeleted: diagnostics.removedSportDocumentsDeleted,
+        firestoreError: diagnostics.firestoreError,
+        sourceErrors: diagnostics.sourceErrors.length,
+        eventsBySport: diagnostics.eventsBySport,
+        resultsBySport: diagnostics.resultsBySport,
+      }, null, 2));
+      return;
+    }
+    runCatchingLog(() => writeDiagnostic(db, { status: "error", error: message }));
+    throw error;
+  }
 
   console.log(JSON.stringify({
     status: "success",
@@ -195,6 +222,8 @@ async function main() {
     resultsPrepared: diagnostics.resultsPrepared,
     resultsWritten: diagnostics.resultsWritten,
     removedSportDocumentsDeleted: diagnostics.removedSportDocumentsDeleted,
+    firestoreError: diagnostics.firestoreError,
+    firestoreCleanupError: diagnostics.firestoreCleanupError,
     sourceErrors: diagnostics.sourceErrors.length,
     newsChecked: diagnostics.newsChecked,
     newsWithSignals: diagnostics.newsWithSignals,
@@ -791,19 +820,34 @@ async function deleteRemovedSports(db) {
   let deleted = 0;
   for (const collection of ["cloud_results", "shared_results"]) {
     for (const sport of REMOVED_SPORTS) {
-      while (true) {
-        const snapshot = await db.collection(collection)
-          .where("sport", "==", sport)
-          .limit(250)
-          .get();
+      while (deleted < MAX_REMOVED_SPORT_DELETES) {
+        let snapshot;
+        try {
+          snapshot = await db.collection(collection)
+            .where("sport", "==", sport)
+            .limit(Math.min(80, MAX_REMOVED_SPORT_DELETES - deleted))
+            .get();
+        } catch (error) {
+          diagnostics.firestoreCleanupError = compactText(error?.message || String(error), 320);
+          if (isFirestoreQuotaError(error)) return deleted;
+          throw error;
+        }
         if (snapshot.empty) break;
         const batch = db.batch();
         snapshot.docs.forEach((doc) => batch.delete(doc.ref));
-        await batch.commit();
+        try {
+          await batch.commit();
+        } catch (error) {
+          diagnostics.firestoreCleanupError = compactText(error?.message || String(error), 320);
+          if (isFirestoreQuotaError(error)) return deleted;
+          throw error;
+        }
         deleted += snapshot.size;
-        if (snapshot.size < 250) break;
+        if (snapshot.size < 80) break;
       }
+      if (deleted >= MAX_REMOVED_SPORT_DELETES) break;
     }
+    if (deleted >= MAX_REMOVED_SPORT_DELETES) break;
   }
   diagnostics.removedSportDocumentsDeleted = deleted;
   return deleted;
@@ -826,6 +870,8 @@ async function writeDiagnostic(db, extra = {}) {
     resultsBySport: diagnostics.resultsBySport,
     resultsWritten: diagnostics.resultsWritten,
     removedSportDocumentsDeleted: diagnostics.removedSportDocumentsDeleted,
+    firestoreError: diagnostics.firestoreError,
+    firestoreCleanupError: diagnostics.firestoreCleanupError,
     newsChecked: diagnostics.newsChecked,
     newsWithSignals: diagnostics.newsWithSignals,
     sourcesChecked: diagnostics.sourcesChecked,
@@ -833,6 +879,22 @@ async function writeDiagnostic(db, extra = {}) {
     error: extra.error || "",
     updatedAt: finishedAt,
   }, { merge: true });
+}
+
+async function runCatchingLog(action) {
+  try {
+    await action();
+  } catch (error) {
+    console.warn(`Diagnostic write skipped: ${compactText(error?.message || String(error), 320)}`);
+  }
+}
+
+function isFirestoreQuotaError(error) {
+  const text = `${error?.code || ""} ${error?.details || ""} ${error?.message || ""}`.toLowerCase();
+  return text.includes("resource_exhausted") ||
+    text.includes("quota exceeded") ||
+    text.includes("code 8") ||
+    error?.code === 8;
 }
 
 async function fetchJson(url) {

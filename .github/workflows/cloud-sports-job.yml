@@ -9,10 +9,9 @@ on:
       - "cloud-job/**"
       - ".github/workflows/cloud-sports-job.yml"
   schedule:
-    # UTC. Check automatique toutes les ~90 minutes pour garder Firebase plus frais
-    # sans dépasser volontairement un rythme gratuit raisonnable.
-    - cron: "0 0,3,6,9,12,15,18,21 * * *"
-    - cron: "30 1,4,7,10,13,16,19,22 * * *"
+    # UTC. Check automatique toutes les 3 heures pour rester compatible quota gratuit Firestore.
+    # Le job prémâche les analyses sans réécrire inutilement trop souvent.
+    - cron: "0 */3 * * *"
 
 permissions:
   contents: read
@@ -33,7 +32,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
 
       - name: Install dependencies
         run: npm install --omit=dev
@@ -43,5 +42,6 @@ jobs:
           FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
           FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
           EVENT_LOOKAHEAD_DAYS: "365"
-          MAX_RESULTS_TO_WRITE: "1200"
+          MAX_RESULTS_TO_WRITE: "900"
+          MAX_REMOVED_SPORT_DELETES: "120"
         run: npm start
