@@ -40,6 +40,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.soliano.betvalueanalyzer.data.local.LiveEventEntity
+import com.soliano.betvalueanalyzer.domain.LiveEventState
+import com.soliano.betvalueanalyzer.domain.LiveEventStateResolver
+import com.soliano.betvalueanalyzer.domain.LiveWindowPolicy
 import com.soliano.betvalueanalyzer.domain.LocalAiReading
 import com.soliano.betvalueanalyzer.domain.LocalAnalysisAssistant
 import com.soliano.betvalueanalyzer.ui.components.cleanDisplayText
@@ -69,7 +72,9 @@ fun LiveDetailScreen(
     contentPadding: PaddingValues,
     onBack: () -> Unit,
 ) {
-    val accent = if (event.isLive || event.hasLiveMainMetric()) Mint else liveDetailSportAccent(event.sportKey)
+    val liveState = LiveWindowPolicy.liveState(event, System.currentTimeMillis()).state
+    val stateLabel = LiveEventStateResolver.displayLabel(liveState)
+    val accent = if (liveState == LiveEventState.Live || event.hasLiveMainMetric()) Mint else liveDetailSportAccent(event.sportKey)
     val aiReading = remember(event) { LocalAnalysisAssistant.explainLive(event) }
     val scenarioLines = event.scenarios.toLiveDetailScenarios()
     val statLines = event.statSummary.lines().map { it.trim() }.filter { it.isNotBlank() }
@@ -108,12 +113,12 @@ fun LiveDetailScreen(
                 ) {
                     Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            LiveDetailTag(event.liveMainMetricTag(), accent)
+                            LiveDetailTag(stateLabel.uppercase(), accent)
                             Text(formatDate(event.commenceTime), style = MaterialTheme.typography.labelMedium, color = TextSecondary)
                         }
                         Text(cleanDisplayText("${event.sportTitle} · ${event.competitionName}"), color = accent, style = MaterialTheme.typography.labelLarge)
                         Text(cleanDisplayText(event.eventName.ifBlank { "${event.homeName} — ${event.awayName}" }), style = MaterialTheme.typography.headlineMedium)
-                        Text(cleanDisplayText(event.statusDescription), color = TextSecondary)
+                        Text(cleanDisplayText("$stateLabel · ${event.statusDescription}"), color = TextSecondary)
                         if (isResultBoard) {
                             LiveDetailResultBoard(event, accent)
                         } else {

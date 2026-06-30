@@ -36,6 +36,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.soliano.betvalueanalyzer.data.local.LiveEventEntity
+import com.soliano.betvalueanalyzer.domain.LiveEventState
+import com.soliano.betvalueanalyzer.domain.LiveEventStateResolver
+import com.soliano.betvalueanalyzer.domain.LiveWindowPolicy
 import com.soliano.betvalueanalyzer.ui.AppUiState
 import com.soliano.betvalueanalyzer.ui.SyncStatus
 import com.soliano.betvalueanalyzer.ui.t
@@ -69,7 +72,8 @@ fun LiveScreen(
     onOpen: (LiveEventEntity) -> Unit,
 ) {
     val syncing = state.syncStatus == SyncStatus.Syncing
-    val liveNow = state.liveEvents.count { it.isLive }
+    val now = System.currentTimeMillis()
+    val liveNow = state.liveEvents.count { LiveWindowPolicy.liveState(it, now).state == LiveEventState.Live }
     LazyColumn(
         modifier = Modifier.padding(contentPadding).statusBarsPadding(),
         contentPadding = PaddingValues(horizontal = 18.dp, vertical = 18.dp),
@@ -133,7 +137,9 @@ fun LiveScreen(
 
 @Composable
 private fun LiveEventCard(event: LiveEventEntity, language: String, onClick: () -> Unit) {
-    val accent = if (event.isLive || event.hasLiveMainMetric()) Mint else sportAccent(event.sportKey)
+    val liveState = LiveWindowPolicy.liveState(event, System.currentTimeMillis()).state
+    val stateLabel = LiveEventStateResolver.displayLabel(liveState)
+    val accent = if (liveState == LiveEventState.Live || event.hasLiveMainMetric()) Mint else sportAccent(event.sportKey)
     val mainScenario = event.scenarios.parseScenarioLines().firstOrNull()
     Surface(
         modifier = Modifier.clickable(onClick = onClick),
@@ -149,7 +155,7 @@ private fun LiveEventCard(event: LiveEventEntity, language: String, onClick: () 
         ) {
             Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    LiveTag(event.liveMainMetricTag(), accent)
+                    LiveTag(stateLabel.uppercase(), accent)
                     Text(formatDate(event.commenceTime), style = MaterialTheme.typography.labelMedium, color = TextSecondary)
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -160,7 +166,7 @@ private fun LiveEventCard(event: LiveEventEntity, language: String, onClick: () 
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    Text(cleanDisplayText(event.statusDescription), style = MaterialTheme.typography.labelMedium, color = TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(cleanDisplayText("$stateLabel · ${event.statusDescription}"), style = MaterialTheme.typography.labelMedium, color = TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 if (event.isResultBoardEvent()) {
                     LiveResultBoard(event, accent)
