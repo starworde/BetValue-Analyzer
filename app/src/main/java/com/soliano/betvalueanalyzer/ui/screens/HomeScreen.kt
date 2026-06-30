@@ -95,7 +95,7 @@ fun HomeScreen(
     val ordered = remember(state.predictions, state.settings.favoriteSports, state.settings.favoriteCompetitions) {
         state.topPredictions
     }
-    val automaticBets = remember(state.predictions) { state.automaticValueBets }
+    val reliableAnalyses = remember(state.predictions) { state.reliableAnalyses }
     val visible = remember(filter, ordered) {
         when (filter) {
             AutomaticFilter.All -> ordered
@@ -183,7 +183,7 @@ fun HomeScreen(
                         LiveKpi(Icons.Outlined.Bolt, state.upcomingEvents.size.toString(), t(language, "événements", "events", "eventos", "Ereignisse"), Mint)
                         LiveKpi(
                             Icons.Outlined.AutoGraph,
-                            automaticBets.size.toString(),
+                            reliableAnalyses.size.toString(),
                             t(language, "signaux forts", "strong signals", "señales fuertes", "starke Signale"),
                             Violet,
                             onClick = showStrongSignals,

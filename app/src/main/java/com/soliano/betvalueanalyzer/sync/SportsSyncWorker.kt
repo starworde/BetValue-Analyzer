@@ -10,13 +10,13 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.soliano.betvalueanalyzer.BetValueApplication
 import com.soliano.betvalueanalyzer.BuildConfig
-import com.soliano.betvalueanalyzer.data.OddsSyncException
+import com.soliano.betvalueanalyzer.data.SportsSyncException
 import com.soliano.betvalueanalyzer.data.SyncPriorities
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.flow.first
 
-class OddsSyncWorker(
+class SportsSyncWorker(
     appContext: Context,
     params: WorkerParameters,
 ) : CoroutineWorker(appContext, params) {
@@ -26,8 +26,8 @@ class OddsSyncWorker(
             val settings = app.preferencesRepository.settings.first()
             if (!settings.autoRefresh) return Result.success()
             val priorities = SyncPriorities(settings.favoriteSports, settings.favoriteCompetitions)
-            app.oddsRepository.syncUpcoming(priorities)
-            app.oddsRepository.syncLive(priorities)
+            app.sportsAnalysisRepository.syncUpcoming(priorities)
+            app.sportsAnalysisRepository.syncLive(priorities)
             if (settings.cloudCollaborativeEnabled) {
                 runCatching {
                     app.cloudCollaborativeRepository.sync(
@@ -38,7 +38,7 @@ class OddsSyncWorker(
                 }
             }
             Result.success()
-        } catch (_: OddsSyncException) {
+        } catch (_: SportsSyncException) {
             Result.success()
         } catch (_: IOException) {
             Result.retry()
@@ -56,7 +56,7 @@ class OddsSyncWorker(
             val constraints = Constraints.Builder()
                 .setRequiredNetworkType(NetworkType.CONNECTED)
                 .build()
-            val request = PeriodicWorkRequestBuilder<OddsSyncWorker>(15, TimeUnit.MINUTES)
+            val request = PeriodicWorkRequestBuilder<SportsSyncWorker>(15, TimeUnit.MINUTES)
                 .setConstraints(constraints)
                 .build()
             WorkManager.getInstance(context).enqueueUniquePeriodicWork(

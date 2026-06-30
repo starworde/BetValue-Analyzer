@@ -401,11 +401,6 @@ internal fun sourceHealthRows(state: AppUiState, language: String): List<SourceH
             firestoreWrite.second,
         ),
         SourceHealthRow(
-            "GitHub Actions",
-            t(language, "Non exposé à l’app · vérifier côté GitHub si besoin", "Not exposed to the app · check GitHub if needed", "No expuesto a la app · revisar GitHub si hace falta", "Nicht in der App verfügbar · bei Bedarf GitHub prüfen"),
-            TextSecondary,
-        ),
-        SourceHealthRow(
             t(language, "Dernière erreur cloud", "Last cloud error", "Último error cloud", "Letzter Cloud-Fehler"),
             cloudError.ifBlank { t(language, "Aucune", "None", "Ninguna", "Keine") },
             if (cloudError.isBlank()) Mint else Danger,

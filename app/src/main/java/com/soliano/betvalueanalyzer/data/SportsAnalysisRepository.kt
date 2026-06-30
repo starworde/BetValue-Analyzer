@@ -47,14 +47,14 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 
-data class OddsSyncResult(
+data class SportsSyncResult(
     val eventsReceived: Int,
     val eventsCataloged: Int,
     val eventsAnalyzed: Int,
     val predictionsSaved: Int,
 )
 
-data class OddsLiveResult(
+data class SportsLiveSyncResult(
     val eventsReceived: Int,
     val eventsTracked: Int,
     val liveCount: Int,
@@ -76,7 +76,7 @@ data class DeepAnalysisTarget(
     val awayTeam: String,
 )
 
-class OddsRepository(
+class SportsAnalysisRepository(
     private val predictionDao: PredictionDao,
     private val upcomingEventDao: UpcomingEventDao,
     private val liveEventDao: LiveEventDao,
@@ -162,7 +162,7 @@ class OddsRepository(
         val homeProfile = profiles[teamProfileKey(sport, target.homeTeam)]
         val awayProfile = profiles[teamProfileKey(sport, target.awayTeam)]
         if (homeProfile == null || awayProfile == null) {
-            throw OddsSyncException("Les historiques multi-sources sont insuffisants pour recalculer ce match.")
+            throw SportsSyncException("Les historiques multi-sources sont insuffisants pour recalculer ce match.")
         }
         onProgress(0.52, "Tendances ${target.sportTitle} des équipes et joueurs calculées")
         val standingSignals = if (sport == "soccer") {
@@ -215,7 +215,7 @@ class OddsRepository(
             standingSignals = standingSignals,
         )
         val calculated = PublicPredictionEngine.analyze(publicEvent)
-        if (calculated.isEmpty()) throw OddsSyncException("Le modèle n'a pas reçu assez de données exploitables.")
+        if (calculated.isEmpty()) throw SportsSyncException("Le modèle n'a pas reçu assez de données exploitables.")
         val entities = calculated.map { it.toEntity(publicEvent, System.currentTimeMillis()) }
         predictionDao.upsertAll(entities)
         upcomingEventDao.setAnalysisId(target.id, entities.first().id)
@@ -316,7 +316,7 @@ class OddsRepository(
             contextSignals = report.signals,
         )
         val calculated = PublicPredictionEngine.analyze(publicEvent)
-        if (calculated.isEmpty()) throw OddsSyncException("Le modèle n'a pas reçu assez de données exploitables.")
+        if (calculated.isEmpty()) throw SportsSyncException("Le modèle n'a pas reçu assez de données exploitables.")
         val entities = calculated.map { it.toEntity(publicEvent, System.currentTimeMillis()) }
         predictionDao.upsertAll(entities)
         upcomingEventDao.setAnalysisId(target.id, entities.first().id)
@@ -564,7 +564,7 @@ class OddsRepository(
         ))
     }.distinctBy { it.query }
 
-    suspend fun syncUpcoming(priorities: SyncPriorities = SyncPriorities()): OddsSyncResult {
+    suspend fun syncUpcoming(priorities: SyncPriorities = SyncPriorities()): SportsSyncResult {
         val now = System.currentTimeMillis()
         val previousPredictions = predictionDao.getUpcoming(now)
         val previousCatalogEvents = upcomingEventDao.getActive(now, now - ACTIVE_EVENT_LOOKBACK_MS)
@@ -588,14 +588,14 @@ class OddsRepository(
         )
         if (successful.isEmpty()) {
             if (previousCatalogEvents.isNotEmpty() || previousPredictions.isNotEmpty()) {
-                return OddsSyncResult(
+                return SportsSyncResult(
                     eventsReceived = 0,
                     eventsCataloged = previousCatalogEvents.size,
                     eventsAnalyzed = previousPredictions.map { it.eventId }.distinct().size,
                     predictionsSaved = previousPredictions.size,
                 )
             }
-            throw OddsSyncException("Impossible de joindre les calendriers sportifs publics. Vérifiez la connexion Internet.")
+            throw SportsSyncException("Impossible de joindre les calendriers sportifs publics. Vérifiez la connexion Internet.")
         }
 
         val syncTime = System.currentTimeMillis()
@@ -656,7 +656,7 @@ class OddsRepository(
         ).filter { RemovedSports.isAllowedSportKey(it.sportKey) }
 
         if (freshCatalogEvents.isEmpty() && previousCatalogEvents.isEmpty()) {
-            throw OddsSyncException("Les sources Internet n'ont renvoyé aucun événement exploitable. Les anciennes données ont été conservées.")
+            throw SportsSyncException("Les sources Internet n'ont renvoyé aucun événement exploitable. Les anciennes données ont été conservées.")
         }
         predictionDao.replaceAll(predictions.filter { RemovedSports.isAllowedSportKey(it.sportKey) })
         upcomingEventDao.replaceAll(catalogEvents.filter { RemovedSports.isAllowedSportKey(it.sportKey) })
@@ -681,7 +681,7 @@ class OddsRepository(
             }
         }
         syncMetadataStore.updateSyncMetadata(syncTime)
-        return OddsSyncResult(
+        return SportsSyncResult(
             eventsReceived = received,
             eventsCataloged = catalogEvents.size,
             eventsAnalyzed = predictions.map { it.eventId }.distinct().size,
@@ -689,7 +689,7 @@ class OddsRepository(
         )
     }
 
-    suspend fun syncLive(priorities: SyncPriorities = SyncPriorities()): OddsLiveResult {
+    suspend fun syncLive(priorities: SyncPriorities = SyncPriorities()): SportsLiveSyncResult {
         val now = System.currentTimeMillis()
         val today = LocalDate.now(ZoneOffset.UTC)
         val dates = "${today.minusDays(1).format(DateTimeFormatter.BASIC_ISO_DATE)}-${today.plusDays(1).format(DateTimeFormatter.BASIC_ISO_DATE)}"
@@ -701,7 +701,7 @@ class OddsRepository(
         val syncTime = System.currentTimeMillis()
         val monitoredEvents = buildLiveMonitorEvents(now, syncTime, priorities)
         if (successful.isEmpty() && monitoredEvents.isEmpty()) {
-            throw OddsSyncException("Impossible de joindre les flux live publics. Les derniers lives connus sont conservés.")
+            throw SportsSyncException("Impossible de joindre les flux live publics. Les derniers lives connus sont conservés.")
         }
         val received = successful.sumOf { it.second.size }
         val liveEvents = (successful
@@ -716,10 +716,10 @@ class OddsRepository(
             .mergeLiveDuplicates()
             .sortedWith(liveEventComparator(priorities))
         if (liveEvents.isEmpty()) {
-            throw OddsSyncException("Aucun événement live exploitable pour l'instant. Les derniers lives connus sont conservés.")
+            throw SportsSyncException("Aucun événement live exploitable pour l'instant. Les derniers lives connus sont conservés.")
         }
         liveEventDao.replaceAll(liveEvents)
-        return OddsLiveResult(
+        return SportsLiveSyncResult(
             eventsReceived = received,
             eventsTracked = liveEvents.size,
             liveCount = liveEvents.count { it.isLive },
@@ -2591,4 +2591,4 @@ class OddsRepository(
     }
 }
 
-class OddsSyncException(message: String) : Exception(message)
+class SportsSyncException(message: String) : Exception(message)

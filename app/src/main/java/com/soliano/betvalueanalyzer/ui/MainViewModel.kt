@@ -6,7 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.soliano.betvalueanalyzer.BuildConfig
 import com.soliano.betvalueanalyzer.BetValueApplication
 import com.soliano.betvalueanalyzer.data.AnalysisRepository
-import com.soliano.betvalueanalyzer.data.OddsRepository
+import com.soliano.betvalueanalyzer.data.SportsAnalysisRepository
 import com.soliano.betvalueanalyzer.data.PreferencesRepository
 import com.soliano.betvalueanalyzer.data.SyncPriorities
 import com.soliano.betvalueanalyzer.data.DeepAnalysisTarget
@@ -69,7 +69,7 @@ data class AppUiState(
     val syncStatus: SyncStatus = SyncStatus.Idle,
     val isReady: Boolean = false,
 ) {
-    val automaticValueBets: List<PredictionEntity>
+    val reliableAnalyses: List<PredictionEntity>
         get() = predictions.filter { predictionCategoryKey(it.category) in setOf("safe", "mitige") }
             .sortedByDescending { it.confidenceScore }
 
@@ -118,7 +118,7 @@ data class AppUiState(
 class MainViewModel(
     private val analysisRepository: AnalysisRepository,
     private val preferencesRepository: PreferencesRepository,
-    private val oddsRepository: OddsRepository,
+    private val sportsAnalysisRepository: SportsAnalysisRepository,
     private val cloudCollaborativeRepository: CloudCollaborativeRepository,
 ) : ViewModel() {
     val messages = MutableSharedFlow<String>(extraBufferCapacity = 1)
@@ -132,42 +132,42 @@ class MainViewModel(
     private val deepAnalysisTasks = ConcurrentHashMap<String, Deferred<PredictionEntity>>()
     private val sportPreloadJobs = ConcurrentHashMap<String, Job>()
 
-    private val oddsUiState = combine(
-        oddsRepository.upcomingPredictions,
-        oddsRepository.upcomingEvents,
-        oddsRepository.liveEvents,
+    private val sportsUiState = combine(
+        sportsAnalysisRepository.upcomingPredictions,
+        sportsAnalysisRepository.upcomingEvents,
+        sportsAnalysisRepository.liveEvents,
     ) { predictions, events, liveEvents ->
-        OddsUiStreams(predictions, events, liveEvents)
+        SportsUiStreams(predictions, events, liveEvents)
     }
 
-    private val displayOddsState = oddsUiState
+    private val displaySportsState = sportsUiState
         .conflate()
-        .map { odds ->
+        .map { sportsData ->
             withContext(Dispatchers.Default) {
-                val displayPredictions = odds.predictions
+                val displayPredictions = sportsData.predictions
                     .map { it.cleanedForDisplay() }
                     .deduplicatedPredictionsForDisplay()
-                val displayEvents = odds.events
+                val displayEvents = sportsData.events
                     .map { it.cleanedForDisplay() }
                     .deduplicatedEventsForDisplay()
-                OddsUiStreams(
+                SportsUiStreams(
                     predictions = displayPredictions,
                     events = displayEvents,
-                    liveEvents = odds.liveEvents.map { it.cleanedForDisplay() },
+                    liveEvents = sportsData.liveEvents.map { it.cleanedForDisplay() },
                 )
             }
         }
 
     private val contentState = combine(
         analysisRepository.sports,
-        displayOddsState,
+        displaySportsState,
         preferencesRepository.settings,
-    ) { sports, odds, settings ->
+    ) { sports, sportsData, settings ->
         AppUiState(
             sports = sports.map { it.cleanedForDisplay() },
-            predictions = odds.predictions,
-            upcomingEvents = odds.events,
-            liveEvents = odds.liveEvents,
+            predictions = sportsData.predictions,
+            upcomingEvents = sportsData.events,
+            liveEvents = sportsData.liveEvents,
             settings = settings,
             isReady = true,
         )
@@ -187,7 +187,7 @@ class MainViewModel(
                 .onFailure { messages.emit("Initialisation impossible : ${it.message}") }
             runCatching {
                 preferencesRepository.purgeRemovedSports()
-                oddsRepository.cleanupRemovedSports()
+                sportsAnalysisRepository.cleanupRemovedSports()
             }.onFailure { messages.emit("Nettoyage des anciens sports impossible : ${it.message}") }
             val settings = preferencesRepository.settings.first()
             if (settings.cloudCollaborativeEnabled) {
@@ -214,7 +214,7 @@ class MainViewModel(
             }
         }
         viewModelScope.launch(Dispatchers.Default) {
-            oddsRepository.upcomingPredictions.collectLatest { predictions ->
+            sportsAnalysisRepository.upcomingPredictions.collectLatest { predictions ->
                 val cleaned = predictions.map { it.cleanedForDisplay() }
                 StructuredAnalysisCache.preload(
                     cleaned.sortedWith(
@@ -244,10 +244,10 @@ class MainViewModel(
                 return@launch
             }
             val priorities = SyncPriorities(settings.favoriteSports, settings.favoriteCompetitions)
-            runCatching { withContext(Dispatchers.IO) { oddsRepository.syncUpcoming(priorities) } }
+            runCatching { withContext(Dispatchers.IO) { sportsAnalysisRepository.syncUpcoming(priorities) } }
                 .onSuccess { result ->
                     val liveResult = withContext(Dispatchers.IO) {
-                        runCatching { oddsRepository.syncLive(priorities) }.getOrNull()
+                        runCatching { sportsAnalysisRepository.syncLive(priorities) }.getOrNull()
                     }
                     val message = if (result.eventsCataloged == 0) {
                         "Aucun événement sportif trouvé pour le moment."
@@ -264,7 +264,7 @@ class MainViewModel(
                 }
                 .onFailure { error ->
                     val liveResult = withContext(Dispatchers.IO) {
-                        runCatching { oddsRepository.syncLive(priorities) }.getOrNull()
+                        runCatching { sportsAnalysisRepository.syncLive(priorities) }.getOrNull()
                     }
                     val message = liveResult?.let { "Calendrier instable, mais live actualisé : ${it.liveCount} live, ${it.eventsTracked} suivis." }
                         ?: error.userSyncMessage("Synchronisation impossible.")
@@ -312,7 +312,7 @@ class MainViewModel(
             val settings = preferencesRepository.settings.first()
             val priorities = SyncPriorities(settings.favoriteSports, settings.favoriteCompetitions)
             runCatching {
-                withContext(Dispatchers.IO) { oddsRepository.syncLive(priorities) }
+                withContext(Dispatchers.IO) { sportsAnalysisRepository.syncLive(priorities) }
             }.onSuccess { result ->
                 val message = "${result.liveCount} live, ${result.eventsTracked} événement(s) suivis maintenant."
                 syncStatus.value = SyncStatus.Ready(message)
@@ -406,7 +406,7 @@ class MainViewModel(
         livePreloadJob = viewModelScope.launch {
             val settings = preferencesRepository.settings.first()
             val priorities = SyncPriorities(settings.favoriteSports, settings.favoriteCompetitions)
-            runCatching { withContext(Dispatchers.IO) { oddsRepository.syncLive(priorities) } }
+            runCatching { withContext(Dispatchers.IO) { sportsAnalysisRepository.syncLive(priorities) } }
                 .onSuccess { result ->
                     syncStatus.value = SyncStatus.Ready("${result.liveCount} live, ${result.eventsTracked} match(s)/événement(s) suivis.")
                 }
@@ -446,7 +446,7 @@ class MainViewModel(
             _deepAnalysis.value = DeepAnalysisStatus.Running(target, 0.03, "Préparation du dossier du match")
             runCatching {
                 withContext(Dispatchers.IO) {
-                    oddsRepository.analyzeDeep(target) { progress, stage ->
+                    sportsAnalysisRepository.analyzeDeep(target) { progress, stage ->
                         _deepAnalysis.value = DeepAnalysisStatus.Running(target, progress.coerceIn(0.03, 1.0), stage)
                     }
                 }
@@ -466,7 +466,7 @@ class MainViewModel(
         deepPredictionCache[cacheKey]?.let { cached -> return CompletableDeferred(cached) }
         deepAnalysisTasks[cacheKey]?.let { return it }
         val deferred = viewModelScope.async(Dispatchers.IO) {
-            val prediction = oddsRepository.analyzeDeep(target) { _, _ -> }.cleanedForDisplay()
+            val prediction = sportsAnalysisRepository.analyzeDeep(target) { _, _ -> }.cleanedForDisplay()
             deepPredictionCache[cacheKey] = prediction
             withContext(Dispatchers.Default) { StructuredAnalysisCache.getOrBuild(prediction) }
             prediction
@@ -608,7 +608,7 @@ class MainViewModel(
             return MainViewModel(
                 app.analysisRepository,
                 app.preferencesRepository,
-                app.oddsRepository,
+                app.sportsAnalysisRepository,
                 app.cloudCollaborativeRepository,
             ) as T
         }
@@ -621,7 +621,7 @@ private fun CloudSyncReport.toUserMessage(): String = when {
     else -> "Cloud collaboratif : $uploadedCount envoyé(s), $fetchedCount récupéré(s), $mergedCount ajouté(s)."
 }
 
-private data class OddsUiStreams(
+private data class SportsUiStreams(
     val predictions: List<PredictionEntity>,
     val events: List<UpcomingEventEntity>,
     val liveEvents: List<LiveEventEntity>,

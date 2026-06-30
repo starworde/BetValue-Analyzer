@@ -152,7 +152,7 @@ class F1AnalysisProvider(private val api: PublicSportsApiService) {
             val epoch = date?.atStartOfDay(ZoneOffset.UTC)?.toInstant()?.toEpochMilli() ?: Long.MAX_VALUE / 2
             val namePenalty = if (normalized(race.obj("raceName").orEmpty()).contains(normalized(target.homeTeam))) 0L else 14L * DAY_MS
             kotlin.math.abs(epoch - target.commenceTime) + namePenalty
-        } ?: throw OddsSyncException("Calendrier F1 officiel indisponible.")
+        } ?: throw SportsSyncException("Calendrier F1 officiel indisponible.")
         val raceName = targetRace.obj("raceName") ?: target.homeTeam
         val circuit = targetRace.objectValue("Circuit")
         val circuitId = circuit?.obj("circuitId").orEmpty()
@@ -219,7 +219,7 @@ class F1AnalysisProvider(private val api: PublicSportsApiService) {
                 constructor * 0.10 + circuitFit * 0.12 + pit * 0.05
             F1DriverModel(name, driverId, team, score, recent, season, qualifying, reliability, circuitFit, pit, trend)
         }.sortedByDescending { it.score }
-        if (models.size < 10) throw OddsSyncException("Données pilotes F1 insuffisantes.")
+        if (models.size < 10) throw SportsSyncException("Données pilotes F1 insuffisantes.")
         val sources = buildList {
             if (standingsRoot != null || resultRaces.isNotEmpty()) add("Jolpica F1 · Ergast")
             if (pitScores.isNotEmpty()) add("OpenF1 · télémétrie et pit-stops")
