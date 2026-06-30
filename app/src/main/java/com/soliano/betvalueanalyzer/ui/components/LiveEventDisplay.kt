@@ -137,14 +137,13 @@ private fun String.extractResultProgressHint(sport: String): String? {
 
 private fun matchPeriodLabel(sport: String, period: Int): String =
     when (sport) {
-        "soccer", "rugby", "handball", "field_hockey" -> if (period <= 1) "1re periode" else "${period}e periode"
+        "soccer", "rugby", "handball" -> if (period <= 1) "1re periode" else "${period}e periode"
         "basketball" -> "quart-temps $period"
         "football" -> "quart-temps $period"
         "baseball" -> "manche $period"
         "hockey" -> "tiers-temps $period"
         "tennis" -> "set $period"
         "volleyball" -> "set $period"
-        "darts", "snooker" -> "frame/set $period"
         else -> "periode $period"
     }
 

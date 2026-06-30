@@ -19,12 +19,10 @@ class SportsCatalogTest {
             "golf",
             "handball",
             "volleyball",
-            "cricket",
             "athletics",
             "mma",
         )))
-        assertTrue(!keys.contains("field_hockey"))
-        assertTrue(!keys.contains("snooker"))
+        assertTrue(keys.none { RemovedSports.isRemovedSportKey(it) })
 
         val tennis = SportsCatalog.sports.first { it.key == "tennis" }
         assertTrue(tennis.competitions.any { it.name.contains("Wimbledon") })
@@ -41,13 +39,21 @@ class SportsCatalogTest {
         assertTrue(volleyball.competitions.any { it.name.contains("European Volleyball League") })
 
         assertEquals("Athlétisme", SportsCatalog.sports.first { it.key == "athletics" }.name)
-        assertEquals("Fléchettes", SportsCatalog.sports.first { it.key == "darts" }.name)
     }
 
     @Test
     fun catalogIdentifiersAreUnique() {
         val competitions = SportsCatalog.sports.flatMap { it.competitions }
         assertEquals(competitions.size, competitions.map { it.key }.distinct().size)
+    }
+
+    @Test
+    fun removedSportsRecognizeUnderscoreAndSlashKeys() {
+        listOf("snooker", "australian_football", "darts", "cricket", "field_hockey").forEach { key ->
+            assertTrue(RemovedSports.isRemovedSportKey(key))
+            assertTrue(RemovedSports.isRemovedSportKey("$key/all"))
+            assertTrue(!SportsCatalog.sports.map { it.key }.contains(key))
+        }
     }
 
     @Test

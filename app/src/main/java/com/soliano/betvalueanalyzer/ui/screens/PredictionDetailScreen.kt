@@ -922,7 +922,7 @@ private fun lineupTacticalReading(team: LineupTeamView, sportKey: String, langua
         "rugby" -> t(language, "Lecture : vérifier charnière, buteur, banc et conquête pour estimer l’orientation offensive/défensive.", "Reading: check half-backs, kicker, bench and set-piece to judge attack/defense orientation.", "Lectura: revisar pareja de medios, pateador, banquillo y conquista para estimar orientación.", "Lesart: Halbspieler, Kicker, Bank und Standards für Angriffs-/Defensivfokus prüfen.")
         "basketball" -> t(language, "Lecture : cinq majeur et rotations à comparer avec usage, fatigue et forme des scoreurs.", "Reading: starting five and rotations must be compared with usage, fatigue and scorer form.", "Lectura: quinteto y rotaciones frente a uso, fatiga y forma de anotadores.", "Lesart: Starting Five und Rotation mit Usage, Müdigkeit und Scorerform abgleichen.")
         "baseball" -> t(language, "Lecture : lineup et lanceur probable guident surtout runs, hits et strikeouts.", "Reading: lineup and probable pitcher mainly guide runs, hits and strikeouts.", "Lectura: lineup y pitcher probable guían carreras, hits y strikeouts.", "Lesart: Lineup und Pitcher steuern vor allem Runs, Hits und Strikeouts.")
-        "hockey", "field_hockey" -> t(language, "Lecture : alignement/gardien à croiser avec volume de tirs et discipline.", "Reading: lineup/goalie should be crossed with shot volume and discipline.", "Lectura: alineación/portero cruzados con tiros y disciplina.", "Lesart: Aufstellung/Torwart mit Schussvolumen und Disziplin abgleichen.")
+        "hockey" -> t(language, "Lecture : alignement/gardien à croiser avec volume de tirs et discipline.", "Reading: lineup/goalie should be crossed with shot volume and discipline.", "Lectura: alineación/portero cruzados con tiros y disciplina.", "Lesart: Aufstellung/Torwart mit Schussvolumen und Disziplin abgleichen.")
         else -> t(language, "Lecture : placement indicatif selon les postes détectés par les sources publiques.", "Reading: indicative placement based on public source positions.", "Lectura: colocación indicativa según posiciones de fuentes públicas.", "Lesart: indikative Platzierung anhand öffentlicher Positionsdaten.")
     }
 }
@@ -944,7 +944,7 @@ private fun playerRoleProfile(player: LineupPlayerView, sportKey: String, langua
             else -> t(language, "rotation utile", "useful rotation", "rotación útil", "nützliche Rotation")
         }
         "baseball" -> t(language, "batte / matchup", "batting / matchup", "bateo / matchup", "Schlag / Matchup")
-        "hockey", "field_hockey" -> when (role) {
+        "hockey" -> when (role) {
             "att" -> t(language, "finition / tirs", "finishing / shots", "definición / tiros", "Abschluss / Schüsse")
             "def" -> t(language, "défense / relance", "defense / breakout", "defensa / salida", "Defensive / Aufbau")
             else -> t(language, "transition / pressing", "transition / pressing", "transición / presión", "Umschalten / Pressing")
@@ -1579,7 +1579,7 @@ private fun LineupPitchCard(team: LineupTeamView, sportKey: String, color: Color
     val sport = sportKey.substringBefore('/')
     val fieldHeight = when (sport) {
         "rugby" -> 310.dp
-        "basketball", "baseball", "hockey", "field_hockey", "volleyball", "cricket", "handball" -> 280.dp
+        "basketball", "baseball", "hockey", "volleyball", "handball" -> 280.dp
         else -> 430.dp
     }
     Surface(shape = RoundedCornerShape(20.dp), color = SurfaceHigh.copy(alpha = 0.88f)) {

@@ -10,6 +10,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.soliano.betvalueanalyzer.data.cloud.CloudSyncReport
+import com.soliano.betvalueanalyzer.domain.RemovedSports
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
@@ -72,8 +73,12 @@ class PreferencesRepository(private val context: Context) : SyncMetadataStore, C
                 pauseReminders = preferences[Keys.pauseReminders] ?: true,
                 autoRefresh = preferences[Keys.autoRefresh] ?: true,
                 lastSyncEpoch = preferences[Keys.lastSyncEpoch] ?: 0L,
-                favoriteSports = preferences[Keys.favoriteSports].orEmpty(),
-                favoriteCompetitions = preferences[Keys.favoriteCompetitions].orEmpty(),
+                favoriteSports = preferences[Keys.favoriteSports].orEmpty()
+                    .filterNot(RemovedSports::isRemovedSportKey)
+                    .toSet(),
+                favoriteCompetitions = preferences[Keys.favoriteCompetitions].orEmpty()
+                    .filterNot(RemovedSports::isRemovedCompetitionKey)
+                    .toSet(),
                 appLanguage = preferences[Keys.appLanguage] ?: "fr",
                 cloudCollaborativeEnabled = preferences[Keys.cloudCollaborativeEnabled] ?: true,
                 lastCloudSyncEpoch = preferences[Keys.lastCloudSyncEpoch] ?: 0L,
@@ -125,13 +130,24 @@ class PreferencesRepository(private val context: Context) : SyncMetadataStore, C
 
     suspend fun setFavoriteSport(key: String, favorite: Boolean) = context.dataStore.edit { preferences ->
         val values = preferences[Keys.favoriteSports].orEmpty().toMutableSet()
-        if (favorite) values.add(key) else values.remove(key)
+        if (favorite && !RemovedSports.isRemovedSportKey(key)) values.add(key) else values.remove(key)
+        values.removeAll { RemovedSports.isRemovedSportKey(it) }
         preferences[Keys.favoriteSports] = values
     }
 
     suspend fun setFavoriteCompetition(key: String, favorite: Boolean) = context.dataStore.edit { preferences ->
         val values = preferences[Keys.favoriteCompetitions].orEmpty().toMutableSet()
-        if (favorite) values.add(key) else values.remove(key)
+        if (favorite && !RemovedSports.isRemovedCompetitionKey(key)) values.add(key) else values.remove(key)
+        values.removeAll { RemovedSports.isRemovedCompetitionKey(it) }
         preferences[Keys.favoriteCompetitions] = values
+    }
+
+    suspend fun purgeRemovedSports() = context.dataStore.edit { preferences ->
+        preferences[Keys.favoriteSports] = preferences[Keys.favoriteSports].orEmpty()
+            .filterNot(RemovedSports::isRemovedSportKey)
+            .toSet()
+        preferences[Keys.favoriteCompetitions] = preferences[Keys.favoriteCompetitions].orEmpty()
+            .filterNot(RemovedSports::isRemovedCompetitionKey)
+            .toSet()
     }
 }

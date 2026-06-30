@@ -14,7 +14,7 @@ fun isNeutralVenueCompetition(
     commenceTime: Long = 0L,
 ): Boolean {
     val sport = sportKey.substringBefore('/')
-    if (sport in setOf("racing", "cycling", "golf", "tennis", "mma", "boxing", "athletics", "nascar", "darts")) return true
+    if (sport in setOf("racing", "cycling", "golf", "tennis", "mma", "boxing", "athletics", "nascar")) return true
     val text = normalizedVenueText(listOf(sportTitle, competitionName, eventName).joinToString(" "))
     if (text.isBlank()) return false
 

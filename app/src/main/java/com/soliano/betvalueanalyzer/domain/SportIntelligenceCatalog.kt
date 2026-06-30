@@ -130,22 +130,6 @@ object SportIntelligenceCatalog {
                 ProbabilityScenario("Gardien : arrêts à surveiller selon volume de tirs", 0.58, "Joueur · Arrêts"),
             ),
         ),
-        "field_hockey" to profile(
-            sportKey = "field_hockey",
-            watchedStats = listOf("buts", "tirs cadrés", "penalty corners", "cartons", "possession", "gardien", "efficacité offensive"),
-            playerStats = listOf("buts", "penalty corners provoqués", "passes décisives", "cartons", "temps de jeu"),
-            contextStats = listOf("forme récente", "surface", "discipline", "gardien", "efficacité penalty corner", "météo"),
-            probabilityScenarios = listOf(
-                ProbabilityScenario("Penalty corners à recalculer avec domination territoriale", 0.60, "Penalty corners"),
-                ProbabilityScenario("Total buts à surveiller selon gardiens et tirs cadrés", 0.58, "Total buts"),
-                ProbabilityScenario("Cartons peuvent changer la possession et le total", 0.49, "Cartons"),
-                ProbabilityScenario("Clean sheet possible si gardien et défense dominent", 0.47, "Clean sheet"),
-                ProbabilityScenario("Écart d’un but à surveiller si niveaux proches", 0.55, "Écart"),
-            ),
-            playerProbabilityScenarios = listOf(
-                ProbabilityScenario("Joueur : but ou assist à recalculer avec rôle sur penalty corner", 0.52, "Joueur · But/assist"),
-            ),
-        ),
         "handball" to profile(
             sportKey = "handball",
             watchedStats = listOf("buts", "buts par match", "écart moyen", "confrontations directes", "H2H", "arrêts gardiens", "gardien disponible", "exclusions 2 minutes", "pertes de balle", "contre-attaques", "jets de 7m", "efficacité 7m", "rotations", "profondeur de banc"),
@@ -188,23 +172,6 @@ object SportIntelligenceCatalog {
             ),
             includeUniversalScenarios = false,
         ),
-        "cricket" to profile(
-            sportKey = "cricket",
-            watchedStats = listOf("runs", "wickets", "overs", "run rate", "toss", "pitch", "météo", "powerplay"),
-            playerStats = listOf("runs batteur", "wickets lanceur", "strike rate", "economy rate", "boundaries", "ordre de batte"),
-            contextStats = listOf("format", "toss", "état du pitch", "rosée", "météo", "lineups", "wickets en main"),
-            probabilityScenarios = listOf(
-                ProbabilityScenario("Total runs à recalculer après toss et lecture pitch", 0.67, "Total runs"),
-                ProbabilityScenario("Wickets powerplay à surveiller selon swing/pitch", 0.54, "Wickets"),
-                ProbabilityScenario("Run rate requis peut créer un collapse tardif", 0.52, "Run rate"),
-                ProbabilityScenario("Batteur 30+/50+ runs à surveiller avec ordre de batte", 0.56, "Runs joueur"),
-                ProbabilityScenario("Lanceur 2+ wickets à recalculer selon matchup", 0.50, "Wickets joueur"),
-            ),
-            playerProbabilityScenarios = listOf(
-                ProbabilityScenario("Batteur : 30+ runs à recalculer avec ordre de batte", 0.55, "Joueur · Runs"),
-                ProbabilityScenario("Lanceur : 2+ wickets à surveiller avec pitch", 0.48, "Joueur · Wickets"),
-            ),
-        ),
         "football" to profile(
             sportKey = "football",
             watchedStats = listOf("touchdowns", "yards", "quarterback", "turnovers", "3rd down", "red zone", "sacks", "météo"),
@@ -220,23 +187,6 @@ object SportIntelligenceCatalog {
             playerProbabilityScenarios = listOf(
                 ProbabilityScenario("Joueur offensif : touchdown à recalculer avec rôle red zone", 0.54, "Joueur · Touchdown"),
                 ProbabilityScenario("QB/RB/WR : yards à surveiller selon volume prévu", 0.58, "Joueur · Yards"),
-            ),
-        ),
-        "australian_football" to profile(
-            sportKey = "australian_football",
-            watchedStats = listOf("goals/behinds", "disposals", "marks", "tackles", "inside 50", "clearances", "météo", "efficacité tir"),
-            playerStats = listOf("goals joueur", "disposals", "marks", "tackles", "rôle milieu/avant"),
-            contextStats = listOf("météo", "terrain", "forme effectif", "matchup", "pression", "efficacité conversion"),
-            probabilityScenarios = listOf(
-                ProbabilityScenario("Total points à recalculer avec météo et efficacité conversion", 0.63, "Total points AFL"),
-                ProbabilityScenario("Goals joueur à surveiller avec rôle offensif", 0.55, "Goals joueur"),
-                ProbabilityScenario("Disposals/marks à recalculer avec rôle milieu", 0.56, "Disposals"),
-                ProbabilityScenario("Tackles élevés possibles si match sous pression", 0.52, "Tackles"),
-                ProbabilityScenario("Écart serré si efficacité goals/behinds proche", 0.57, "Écart"),
-            ),
-            playerProbabilityScenarios = listOf(
-                ProbabilityScenario("Avant : 2+ goals à recalculer avec rôle offensif", 0.50, "Joueur · Goals"),
-                ProbabilityScenario("Milieu : disposals à surveiller selon temps au centre", 0.58, "Joueur · Disposals"),
             ),
         ),
         "cycling" to raceProfile(
@@ -288,40 +238,6 @@ object SportIntelligenceCatalog {
             playerProbabilityScenarios = listOf(
                 ProbabilityScenario("Athlète : qualification finale à surveiller", 0.60, "Athlète · Qualification"),
                 ProbabilityScenario("Athlète : podium/médaille à recalculer avec startlist", 0.50, "Athlète · Podium"),
-            ),
-        ),
-        "darts" to profile(
-            sportKey = "darts",
-            watchedStats = listOf("moyenne 3 fléchettes", "checkout", "180", "doubles", "legs/sets", "ranking", "forme", "face-à-face"),
-            playerStats = listOf("180 joueur", "checkout", "moyenne", "legs gagnés", "pression doubles", "format sets"),
-            contextStats = listOf("format court/long", "scène", "ranking", "forme récente", "historique direct", "pression public"),
-            probabilityScenarios = listOf(
-                ProbabilityScenario("Total 180 à recalculer avec moyenne récente", 0.58, "180"),
-                ProbabilityScenario("Checkout élevé à surveiller avec réussite doubles", 0.52, "Checkout"),
-                ProbabilityScenario("Handicap legs/sets à vérifier avec format", 0.57, "Handicap"),
-                ProbabilityScenario("Over legs si niveaux proches et format long", 0.60, "Total legs"),
-                ProbabilityScenario("Moyenne 3 fléchettes peut signaler le favori réel", 0.62, "Moyenne"),
-            ),
-            playerProbabilityScenarios = listOf(
-                ProbabilityScenario("Joueur : 180 à surveiller avec volume scoring", 0.52, "Joueur · 180"),
-                ProbabilityScenario("Joueur : checkout à recalculer avec pression doubles", 0.50, "Joueur · Checkout"),
-            ),
-        ),
-        "snooker" to profile(
-            sportKey = "snooker",
-            watchedStats = listOf("ranking", "frames", "centuries", "breaks 50+", "safety", "long pot", "forme", "format"),
-            playerStats = listOf("century joueur", "break 50+", "frames gagnées", "sécurité", "historique direct", "forme scoring"),
-            contextStats = listOf("format court/long", "table", "pression", "ranking", "fatigue tournoi", "jeu de sécurité"),
-            probabilityScenarios = listOf(
-                ProbabilityScenario("Centuries/breaks élevés à recalculer avec forme scoring", 0.55, "Centuries"),
-                ProbabilityScenario("Total frames over si niveaux proches", 0.60, "Total frames"),
-                ProbabilityScenario("Handicap frames à vérifier avec format", 0.56, "Handicap frames"),
-                ProbabilityScenario("Sécurité/tactical frames peut ralentir le score", 0.52, "Sécurité"),
-                ProbabilityScenario("Break 50+ à surveiller avec scoring récent", 0.57, "Breaks"),
-            ),
-            playerProbabilityScenarios = listOf(
-                ProbabilityScenario("Joueur : century/break 50+ à surveiller", 0.51, "Joueur · Breaks"),
-                ProbabilityScenario("Joueur : handicap frames à recalculer avec format", 0.55, "Joueur · Frames"),
             ),
         ),
     )

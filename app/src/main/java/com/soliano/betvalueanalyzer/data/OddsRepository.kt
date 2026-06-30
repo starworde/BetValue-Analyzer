@@ -22,6 +22,7 @@ import com.soliano.betvalueanalyzer.data.remote.VolleyballWorldFallbackParser
 import com.soliano.betvalueanalyzer.data.remote.PublicSportsApiService
 import com.soliano.betvalueanalyzer.domain.PublicEvent
 import com.soliano.betvalueanalyzer.domain.PublicPrediction
+import com.soliano.betvalueanalyzer.domain.RemovedSports
 import com.soliano.betvalueanalyzer.domain.PublicPredictionEngine
 import com.soliano.betvalueanalyzer.domain.LiveEventSnapshot
 import com.soliano.betvalueanalyzer.domain.LiveProjectionEngine
@@ -96,7 +97,7 @@ class OddsRepository(
 
     val upcomingPredictions: Flow<List<PredictionEntity>> =
         combine(predictionDao.observeAll(), clock) { predictions, now ->
-            predictions.filter { it.commenceTime > now }
+            predictions.filter { it.commenceTime > now && RemovedSports.isAllowedSportKey(it.sportKey) }
         }
             .distinctUntilChanged()
             .flowOn(Dispatchers.Default)
@@ -104,8 +105,9 @@ class OddsRepository(
     val upcomingEvents: Flow<List<UpcomingEventEntity>> =
         combine(upcomingEventDao.observeAll(), clock) { events, now ->
             events.filter { event ->
-                if (event.eventType == "MATCH") event.commenceTime > now
-                else event.commenceTime > now - ACTIVE_EVENT_LOOKBACK_MS
+                RemovedSports.isAllowedSportKey(event.sportKey) &&
+                    if (event.eventType == "MATCH") event.commenceTime > now
+                    else event.commenceTime > now - ACTIVE_EVENT_LOOKBACK_MS
             }
         }
             .distinctUntilChanged()
@@ -113,7 +115,7 @@ class OddsRepository(
 
     val liveEvents: Flow<List<LiveEventEntity>> =
         combine(liveEventDao.observeAll(), clock) { events, now ->
-            events.filter { event -> LiveWindowPolicy.shouldShow(event, now) }
+            events.filter { event -> RemovedSports.isAllowedSportKey(event.sportKey) && LiveWindowPolicy.shouldShow(event, now) }
                 .sortedWith(compareByDescending<LiveEventEntity> { it.isLive }.thenBy { it.commenceTime })
         }
             .distinctUntilChanged()
@@ -125,11 +127,23 @@ class OddsRepository(
         liveEventDao.deleteAll()
     }
 
+    suspend fun cleanupRemovedSports() {
+        RemovedSports.keys.forEach { sport ->
+            val prefix = "$sport/%"
+            predictionDao.deleteBySportPrefix(sport, prefix)
+            upcomingEventDao.deleteBySportPrefix(sport, prefix)
+            liveEventDao.deleteBySportPrefix(sport, prefix)
+        }
+    }
+
     suspend fun analyzeDeep(
         target: DeepAnalysisTarget,
         onProgress: (Double, String) -> Unit = { _, _ -> },
     ): PredictionEntity {
         val sport = target.sportKey.substringBefore('/')
+        require(RemovedSports.isAllowedSportKey(sport)) {
+            "Ce sport a été retiré de l'application."
+        }
         if (sport == "racing") return analyzeF1Deep(target, onProgress)
         if (sport == "cycling") return analyzeCyclingDeep(target, onProgress)
         if (sport == "tennis") return analyzeTennisDeep(target, onProgress)
@@ -491,10 +505,6 @@ class OddsRepository(
                 "$label NASCAR pneus cautions meteo fiabilite pilote",
                 "$label NASCAR favoris top 10 duel pilote",
             )
-            "darts" -> listOf(
-                "$label darts moyenne checkout 180 ranking forme",
-                "$label flechettes format legs sets favoris",
-            )
             "athletics" -> listOf(
                 "$label athletics startlist season best personal best",
                 "$label athletisme qualification finale podium meteo vent",
@@ -604,7 +614,7 @@ class OddsRepository(
         val newsContexts = mergedContext.reports
         val calendarSources = successful.calendarSourceMap(now)
         val calculatedPredictions = successful.flatMap { (source, events) ->
-            if (source.sport !in ANALYZABLE_SPORTS) return@flatMap emptyList()
+            if (source.sport !in ANALYZABLE_SPORTS || !RemovedSports.isAllowedSportKey(source.sport)) return@flatMap emptyList()
             events.asSequence()
                 .flatMap { event ->
                     runCatching {
@@ -619,35 +629,37 @@ class OddsRepository(
                     }
                 }
                 .toList()
-        }.filter { it.commenceTime > now }
+        }.filter { it.commenceTime > now && RemovedSports.isAllowedSportKey(it.sportKey) }
             .sortedByDescending { it.statSummary.isNotBlank() }
             .distinctBy { predictionIdentity(it) }
         val predictions = mergePredictions(
             fresh = (retainedDeepPredictions + calculatedPredictions).distinctBy { predictionIdentity(it) },
             previous = previousPredictions,
             now = now,
-        )
+        ).filter { RemovedSports.isAllowedSportKey(it.sportKey) }
 
         val freshCatalogEvents = (
             successful.flatMap { (source, events) ->
+                if (!RemovedSports.isAllowedSportKey(source.sport)) return@flatMap emptyList()
                 events.mapNotNull { event ->
                     runCatching { event.toUpcomingEvent(source, now, predictions) }.getOrNull()
                 }
             } + curatedMajorCalendarEvents(now, predictions)
-        ).sortedByDescending { it.analysisId != null }
+        ).filter { RemovedSports.isAllowedSportKey(it.sportKey) }
+            .sortedByDescending { it.analysisId != null }
             .distinctBy { catalogIdentity(it) }
             .sortedBy { it.commenceTime }
         val catalogEvents = mergeCatalogEvents(
             fresh = freshCatalogEvents,
             previous = previousCatalogEvents,
             now = now,
-        )
+        ).filter { RemovedSports.isAllowedSportKey(it.sportKey) }
 
         if (freshCatalogEvents.isEmpty() && previousCatalogEvents.isEmpty()) {
             throw OddsSyncException("Les sources Internet n'ont renvoyé aucun événement exploitable. Les anciennes données ont été conservées.")
         }
-        predictionDao.replaceAll(predictions)
-        upcomingEventDao.replaceAll(catalogEvents)
+        predictionDao.replaceAll(predictions.filter { RemovedSports.isAllowedSportKey(it.sportKey) })
+        upcomingEventDao.replaceAll(catalogEvents.filter { RemovedSports.isAllowedSportKey(it.sportKey) })
         val prioritizeF1 = "racing" in priorities.favoriteSports ||
             priorities.favoriteCompetitions.any { it.startsWith("racing:") }
         if (prioritizeF1) {
@@ -694,11 +706,13 @@ class OddsRepository(
         val received = successful.sumOf { it.second.size }
         val liveEvents = (successful
             .flatMap { (source, events) ->
+                if (!RemovedSports.isAllowedSportKey(source.sport)) return@flatMap emptyList()
                 events.mapNotNull { event ->
                     runCatching { event.toLiveEvent(source, now, syncTime) }.getOrNull()
                 }
             }
             + monitoredEvents)
+            .filter { RemovedSports.isAllowedSportKey(it.sportKey) }
             .mergeLiveDuplicates()
             .sortedWith(liveEventComparator(priorities))
         if (liveEvents.isEmpty()) {
@@ -718,8 +732,10 @@ class OddsRepository(
         priorities: SyncPriorities,
     ): List<LiveEventEntity> {
         val predictions = predictionDao.getUpcoming(now)
+            .filter { RemovedSports.isAllowedSportKey(it.sportKey) }
             .mapNotNull { it.toLiveMonitorEvent(now, syncTime) }
         val catalogEvents = upcomingEventDao.getActive(now, now - ACTIVE_EVENT_LOOKBACK_MS)
+            .filter { RemovedSports.isAllowedSportKey(it.sportKey) }
             .mapNotNull { it.toLiveMonitorEvent(now, syncTime) }
         val curatedEvents = curatedMajorLiveEvents(now, syncTime)
         return (predictions + catalogEvents + curatedEvents)
@@ -1284,7 +1300,7 @@ class OddsRepository(
     private fun liveEventKeepMs(sport: String): Long = when (sport) {
         "soccer", "rugby", "football" -> TEAM_MATCH_KEEP_MS
         "basketball", "handball", "volleyball", "hockey" -> TEAM_MATCH_KEEP_MS
-        "baseball", "cricket", "tennis", "mma", "boxing", "darts" -> 5L * 60 * 60 * 1000
+        "baseball", "tennis", "mma", "boxing" -> 5L * 60 * 60 * 1000
         "cycling", "racing", "nascar", "golf", "athletics" -> RACE_RESULT_KEEP_MS
         else -> LIVE_EVENT_KEEP_MS
     }
@@ -1292,7 +1308,7 @@ class OddsRepository(
     private fun liveMonitorLookbackMs(sport: String): Long = when (sport) {
         "soccer", "rugby", "football" -> TEAM_MATCH_KEEP_MS
         "basketball", "handball", "volleyball", "hockey" -> TEAM_MATCH_KEEP_MS
-        "baseball", "cricket", "tennis", "mma", "boxing", "darts" -> 5L * 60 * 60 * 1000
+        "baseball", "tennis", "mma", "boxing" -> 5L * 60 * 60 * 1000
         "cycling", "racing", "nascar", "golf", "athletics" -> RACE_RESULT_KEEP_MS
         else -> LIVE_EVENT_KEEP_MS
     }
@@ -1523,13 +1539,10 @@ class OddsRepository(
             "Volleyball",
             "Ice Hockey",
             "American Football",
-            "Australian Football",
-            "Cricket",
             "Golf",
             "Cycling",
             "MMA",
             "Boxing",
-            "Darts",
             "Athletics",
             "Motorsport",
         )
@@ -1578,13 +1591,10 @@ class OddsRepository(
             "Volleyball",
             "Ice Hockey",
             "American Football",
-            "Australian Football",
-            "Cricket",
             "Golf",
             "Cycling",
             "MMA",
             "Boxing",
-            "Darts",
             "Athletics",
             "Motorsport",
         )
@@ -1731,6 +1741,7 @@ class OddsRepository(
     private suspend fun fetchTheSportsDbLeagueFeeds(today: LocalDate): List<Pair<PublicSource, List<EspnEventDto>>> {
         val maxDate = today.plusDays(365)
         return THE_SPORTS_DB_LEAGUES.mapNotNull { league ->
+            if (!RemovedSports.isAllowedSportKey(league.sport)) return@mapNotNull null
             val external = fetchTheSportsDbLeagueEvents(league, today, maxDate)
                 .filter { item ->
                     val date = parseInstant(item.timestamp)?.let { Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate() }
@@ -1830,11 +1841,8 @@ class OddsRepository(
         "volleyball" -> "volleyball" to "Volley-ball"
         "ice hockey", "hockey" -> "hockey" to "Hockey sur glace"
         "american football" -> "football" to "Football américain"
-        "australian football", "australian rules football" -> "australian_football" to "Football australien"
-        "cricket" -> "cricket" to "Cricket"
         "golf" -> "golf" to "Golf"
         "cycling" -> "cycling" to "Cyclisme"
-        "darts" -> "darts" to "Fléchettes"
         "athletics" -> "athletics" to "Athlétisme"
         "motorsport", "motor sport", "formula 1" -> "racing" to "Sports mécaniques"
         "nascar" -> "nascar" to "NASCAR"
@@ -1853,11 +1861,8 @@ class OddsRepository(
         "volleyball" -> "Volleyball"
         "hockey" -> "Ice Hockey"
         "football" -> "American Football"
-        "australian_football" -> "Australian Football"
-        "cricket" -> "Cricket"
         "golf" -> "Golf"
         "cycling" -> "Cycling"
-        "darts" -> "Darts"
         "athletics" -> "Athletics"
         "racing", "nascar" -> "Motorsport"
         "mma" -> "MMA"
@@ -1870,7 +1875,7 @@ class OddsRepository(
         "racing" -> "GP"
         "golf" -> "TOURNAMENT"
         "tennis" -> "MATCH"
-        "mma", "boxing", "athletics", "darts" -> "EVENT"
+        "mma", "boxing", "athletics" -> "EVENT"
         else -> "MATCH"
     }
 
@@ -2483,8 +2488,6 @@ class OddsRepository(
             "rugby",
             "handball",
             "volleyball",
-            "cricket",
-            "australian_football",
         )
         val STANDALONE_SPORTS = setOf(
             "tennis",
@@ -2492,19 +2495,16 @@ class OddsRepository(
             "mma",
             "boxing",
             "nascar",
-            "darts",
             "athletics",
         )
         val ANALYZABLE_SPORTS = TEAM_SPORTS + STANDALONE_SPORTS + setOf("cycling", "racing")
         val PROFILE_SPORTS = TEAM_SPORTS
-        val LONG_LIVE_MONITOR_SPORTS = setOf("cycling", "racing", "nascar", "golf", "tennis", "athletics", "mma", "boxing", "darts")
+        val LONG_LIVE_MONITOR_SPORTS = setOf("cycling", "racing", "nascar", "golf", "tennis", "athletics", "mma", "boxing")
         val RESULT_BOARD_LIVE_SPORTS = setOf("cycling", "racing", "nascar", "golf", "athletics")
         val SPORTS_DB_SEASON_EXPANDED_SPORTS = setOf(
             "tennis",
             "volleyball",
             "handball",
-            "cricket",
-            "darts",
         )
 
         private val PARIS_ZONE: ZoneId = ZoneId.of("Europe/Paris")
@@ -2534,8 +2534,6 @@ class OddsRepository(
         )
 
         val THE_SPORTS_DB_LEAGUES = listOf(
-            ExternalLeagueSource("4456", "australian_football", "Football australien", "Australian AFL", "MATCH"),
-            ExternalLeagueSource("5311", "australian_football", "Football australien", "AFL Womens", "MATCH"),
             ExternalLeagueSource("4405", "football", "Football américain", "CFL", "MATCH"),
             ExternalLeagueSource("5063", "football", "Football américain", "European League of Football", "MATCH"),
             ExternalLeagueSource("4980", "handball", "Handball", "EHF Champions League", "MATCH"),
@@ -2551,12 +2549,6 @@ class OddsRepository(
             ExternalLeagueSource("4581", "tennis", "Tennis", "Laver Cup", "TOURNAMENT"),
             ExternalLeagueSource("4761", "golf", "Golf", "PGA Tour of Australasia", "TOURNAMENT"),
             ExternalLeagueSource("4758", "golf", "Golf", "European Challenge Tour", "TOURNAMENT"),
-            ExternalLeagueSource("4554", "darts", "Fléchettes", "PDC Darts", "EVENT"),
-            ExternalLeagueSource("4561", "darts", "Fléchettes", "BDO Darts", "EVENT"),
-            ExternalLeagueSource("4461", "cricket", "Cricket", "Big Bash League", "MATCH"),
-            ExternalLeagueSource("5176", "cricket", "Cricket", "Caribbean Premier League", "MATCH"),
-            ExternalLeagueSource("5529", "cricket", "Cricket", "Bangladesh Premier League", "MATCH"),
-            ExternalLeagueSource("5530", "cricket", "Cricket", "Sheffield Shield", "MATCH"),
             ExternalLeagueSource("5007", "athletics", "Athlétisme", "World Athletics Championships", "EVENT"),
             ExternalLeagueSource("5788", "athletics", "Athlétisme", "World Athletics Ultimate Championship", "EVENT"),
             ExternalLeagueSource("5785", "athletics", "Athlétisme", "World Athletics Indoor Tour Gold", "EVENT"),

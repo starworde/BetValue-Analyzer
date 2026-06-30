@@ -8,6 +8,8 @@ const MAX_RESULTS_TO_WRITE = Number.parseInt(process.env.MAX_RESULTS_TO_WRITE ??
 const MAX_NEWS_EVENTS = Number.parseInt(process.env.MAX_NEWS_EVENTS ?? "80", 10);
 const HTTP_TIMEOUT_MS = Number.parseInt(process.env.HTTP_TIMEOUT_MS ?? "16000", 10);
 const USER_AGENT = "BetValueAnalyzer-GitHubActions/1.0 (+public sports schedules)";
+const REMOVED_SPORTS = new Set(["snooker", "australian_football", "darts", "cricket", "field_hockey"]);
+const isRemovedSport = (sport) => REMOVED_SPORTS.has(String(sport || "").split("/")[0]);
 
 const ESPN_SOURCES = [
   { sport: "soccer", league: "all", sportTitle: "Football", competition: "Compétition football", eventType: "MATCH", maxEvents: 140 },
@@ -27,8 +29,6 @@ const ESPN_SOURCES = [
 ];
 
 const THE_SPORTS_DB_LEAGUES = [
-  ["4456", "australian_football", "Football australien", "Australian AFL", "MATCH"],
-  ["5311", "australian_football", "Football australien", "AFL Womens", "MATCH"],
   ["4405", "football", "Football américain", "CFL", "MATCH"],
   ["5063", "football", "Football américain", "European League of Football", "MATCH"],
   ["4980", "handball", "Handball", "EHF Champions League", "MATCH"],
@@ -39,20 +39,11 @@ const THE_SPORTS_DB_LEAGUES = [
   ["5613", "volleyball", "Volley-ball", "Championnat d'Europe masculin", "MATCH"],
   ["5848", "volleyball", "Volley-ball", "European Volleyball League", "MATCH"],
   ["5614", "volleyball", "Volley-ball", "CEV Challenge Cup", "MATCH"],
-  ["5813", "field_hockey", "Hockey sur gazon", "EuroHockey Championship", "MATCH"],
-  ["5812", "field_hockey", "Hockey sur gazon", "Pan American Cup", "MATCH"],
   ["4464", "tennis", "Tennis", "ATP World Tour", "MATCH"],
   ["4517", "tennis", "Tennis", "WTA Tour", "MATCH"],
   ["4581", "tennis", "Tennis", "Laver Cup", "MATCH"],
   ["4761", "golf", "Golf", "PGA Tour of Australasia", "TOURNAMENT"],
   ["4758", "golf", "Golf", "European Challenge Tour", "TOURNAMENT"],
-  ["4555", "snooker", "Snooker", "World Snooker", "TOURNAMENT"],
-  ["4554", "darts", "Fléchettes", "PDC Darts", "EVENT"],
-  ["4561", "darts", "Fléchettes", "BDO Darts", "EVENT"],
-  ["4461", "cricket", "Cricket", "Big Bash League", "MATCH"],
-  ["5176", "cricket", "Cricket", "Caribbean Premier League", "MATCH"],
-  ["5529", "cricket", "Cricket", "Bangladesh Premier League", "MATCH"],
-  ["5530", "cricket", "Cricket", "Sheffield Shield", "MATCH"],
   ["5007", "athletics", "Athlétisme", "World Athletics Championships", "EVENT"],
   ["5788", "athletics", "Athlétisme", "World Athletics Ultimate Championship", "EVENT"],
   ["5785", "athletics", "Athlétisme", "World Athletics Indoor Tour Gold", "EVENT"],
@@ -66,9 +57,6 @@ const SPORTS_DB_SEASON_EXPANDED_SPORTS = new Set([
   "tennis",
   "volleyball",
   "handball",
-  "cricket",
-  "snooker",
-  "darts",
 ]);
 
 const VOLLEYBALL_WORLD_FEEDS = [
@@ -122,7 +110,7 @@ const CONFIGURED_SPORTS = Array.from(new Set([
   ...THE_SPORTS_DB_LEAGUES.map((source) => source.sport),
   "cycling",
   "boxing",
-])).sort();
+])).filter((sport) => !isRemovedSport(sport)).sort();
 
 const diagnostics = {
   sourcesChecked: 0,
@@ -134,6 +122,7 @@ const diagnostics = {
   resultsBySport: {},
   resultsPrepared: 0,
   resultsWritten: 0,
+  removedSportDocumentsDeleted: 0,
   newsChecked: 0,
   newsWithSignals: 0,
 };
@@ -157,7 +146,7 @@ main().catch(async (error) => {
 });
 
 async function main() {
-  const events = await collectEvents();
+  const events = (await collectEvents()).filter((event) => !isRemovedSport(event.sport));
   diagnostics.eventsFound = events.length;
   diagnostics.eventsBySport = countBy(events, (event) => event.sport);
   diagnostics.sportsWithoutEvents = CONFIGURED_SPORTS.filter((sport) => !diagnostics.eventsBySport[sport]);
@@ -176,6 +165,7 @@ async function main() {
       status: "dry-run",
       eventsFound: diagnostics.eventsFound,
       resultsPrepared: diagnostics.resultsPrepared,
+      removedSportDocumentsDeleted: diagnostics.removedSportDocumentsDeleted,
       sourceErrors: diagnostics.sourceErrors.length,
       sourceErrorDetails: diagnostics.sourceErrors.slice(0, 10),
       newsChecked: diagnostics.newsChecked,
@@ -194,6 +184,7 @@ async function main() {
   }
 
   const db = await initializeFirestore();
+  await deleteRemovedSports(db);
   const written = await writeCloudResults(db, results);
   diagnostics.resultsWritten = written;
   await writeDiagnostic(db, { status: "success" });
@@ -203,6 +194,7 @@ async function main() {
     eventsFound: diagnostics.eventsFound,
     resultsPrepared: diagnostics.resultsPrepared,
     resultsWritten: diagnostics.resultsWritten,
+    removedSportDocumentsDeleted: diagnostics.removedSportDocumentsDeleted,
     sourceErrors: diagnostics.sourceErrors.length,
     newsChecked: diagnostics.newsChecked,
     newsWithSignals: diagnostics.newsWithSignals,
@@ -298,6 +290,7 @@ async function collectEvents() {
   const cutoffPast = Date.now() - EVENT_LOOKBACK_MS;
   const cutoffFuture = Date.now() + EVENT_LOOKAHEAD_DAYS * DAY_MS + DAY_MS;
   return uniqueBy(collected, (event) => event.eventId)
+    .filter((event) => !isRemovedSport(event.sport))
     .filter((event) => event.eventDate >= cutoffPast && event.eventDate <= cutoffFuture)
     .sort((a, b) => a.eventDate - b.eventDate);
 }
@@ -794,6 +787,28 @@ async function writeCloudResults(db, results) {
   return written;
 }
 
+async function deleteRemovedSports(db) {
+  let deleted = 0;
+  for (const collection of ["cloud_results", "shared_results"]) {
+    for (const sport of REMOVED_SPORTS) {
+      while (true) {
+        const snapshot = await db.collection(collection)
+          .where("sport", "==", sport)
+          .limit(250)
+          .get();
+        if (snapshot.empty) break;
+        const batch = db.batch();
+        snapshot.docs.forEach((doc) => batch.delete(doc.ref));
+        await batch.commit();
+        deleted += snapshot.size;
+        if (snapshot.size < 250) break;
+      }
+    }
+  }
+  diagnostics.removedSportDocumentsDeleted = deleted;
+  return deleted;
+}
+
 async function writeDiagnostic(db, extra = {}) {
   const finishedAt = Date.now();
   await db.collection("cloud_diagnostics").doc("current").set({
@@ -810,6 +825,7 @@ async function writeDiagnostic(db, extra = {}) {
     resultsPrepared: diagnostics.resultsPrepared,
     resultsBySport: diagnostics.resultsBySport,
     resultsWritten: diagnostics.resultsWritten,
+    removedSportDocumentsDeleted: diagnostics.removedSportDocumentsDeleted,
     newsChecked: diagnostics.newsChecked,
     newsWithSignals: diagnostics.newsWithSignals,
     sourcesChecked: diagnostics.sourcesChecked,

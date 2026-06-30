@@ -79,6 +79,7 @@ data class ProbabilityScenario(
 
 object PublicPredictionEngine {
     fun analyze(event: PublicEvent): List<PublicPrediction> {
+        if (!RemovedSports.isAllowedSportKey(event.sportKey)) return emptyList()
         val predictions = mutableListOf<PublicPrediction>()
         winnerPrediction(event)?.let(predictions::add)
         listOfNotNull(totalPrediction(event), spreadPrediction(event))
@@ -143,12 +144,11 @@ object PublicPredictionEngine {
             event.sportKey.startsWith("baseball") -> candidates.flatMap { baseballPlayerScenarios(it.stats) }
             event.sportKey.startsWith("rugby") -> candidates.flatMap { scoringPlayerScenarios(it.stats, "essai", "Joueur · Essai") }
             event.sportKey.startsWith("handball") -> candidates.flatMap { handballPlayerScenarios(it.stats) }
-            event.sportKey.startsWith("hockey") || event.sportKey.startsWith("field_hockey") ->
+            event.sportKey.startsWith("hockey") ->
                 candidates.flatMap { scoringPlayerScenarios(it.stats, "but", "Joueur · But") }
             event.sportKey.startsWith("volleyball") -> candidates.flatMap { pointsPlayerScenarios(it.stats, "Joueur · Points", "points") }
-            event.sportKey.startsWith("football") || event.sportKey.startsWith("australian_football") ->
+            event.sportKey.startsWith("football") ->
                 candidates.flatMap { pointsPlayerScenarios(it.stats, "Joueur · Points", "points") }
-            event.sportKey.startsWith("cricket") -> candidates.flatMap { pointsPlayerScenarios(it.stats, "Joueur · Runs", "runs") }
             else -> emptyList()
         }
         val minimumProbability = if (event.sportKey.startsWith("soccer")) 0.025 else 0.08
@@ -179,7 +179,7 @@ object PublicPredictionEngine {
             event.sportKey.startsWith("handball") -> listOf(
                 "Joueur · Buts handball" to 6,
             ).flatMap { (type, limit) -> ranked.filter { it.type == type }.take(limit) }
-            event.sportKey.startsWith("hockey") || event.sportKey.startsWith("field_hockey") -> listOf(
+            event.sportKey.startsWith("hockey") -> listOf(
                 "Joueur · But" to 5,
                 "Joueur · Passe" to 3,
             ).flatMap { (type, limit) -> ranked.filter { it.type == type }.take(limit) }
@@ -1042,7 +1042,7 @@ object PublicPredictionEngine {
                     add(ProbabilityScenario("Chaque équipe marque 2+ runs", teamAtLeast(homeScore, 2.0, teamSd) * teamAtLeast(awayScore, 2.0, teamSd), "Runs"))
                     add(ProbabilityScenario("Match à 1 run d'écart", closeGameProbability, "Écart baseball"))
                 }
-                "hockey", "field_hockey" -> {
+                "hockey" -> {
                     add(ProbabilityScenario("Chaque équipe marque 2+ buts", teamAtLeast(homeScore, 2.0, teamSd) * teamAtLeast(awayScore, 2.0, teamSd), "Buts"))
                     add(ProbabilityScenario("Match à 1 but d'écart", closeGameProbability, "Écart hockey"))
                 }
@@ -1054,13 +1054,9 @@ object PublicPredictionEngine {
                     add(ProbabilityScenario("Match en 4 ou 5 sets possible", closeGameProbability, "Sets"))
                     add(ProbabilityScenario("Victoire nette 3-0 possible", (1.0 - closeGameProbability).coerceIn(0.01, 0.99), "Sets"))
                 }
-                "football", "australian_football" -> {
+                "football" -> {
                     add(ProbabilityScenario("Chaque équipe atteint 17+ points", teamAtLeast(homeScore, 17.0, teamSd) * teamAtLeast(awayScore, 17.0, teamSd), "Points"))
                     add(ProbabilityScenario("Match à moins d'un touchdown d'écart", closeGameProbability, "Écart"))
-                }
-                "cricket" -> {
-                    add(ProbabilityScenario("Chaque équipe dépasse 120 runs", teamAtLeast(homeScore, 120.0, teamSd) * teamAtLeast(awayScore, 120.0, teamSd), "Runs"))
-                    add(ProbabilityScenario("Match serré au total de runs", closeGameProbability, "Écart cricket"))
                 }
             }
         }.filter { it.probability in 0.01..0.99 }
@@ -1162,32 +1158,27 @@ object PublicPredictionEngine {
         "rugby" -> "Vainqueur temps réglementaire - forme récente"
         "basketball" -> "Vainqueur basket - forme récente"
         "baseball" -> "Vainqueur baseball - forme récente"
-        "hockey", "field_hockey" -> "Vainqueur hockey - forme récente"
+        "hockey" -> "Vainqueur hockey - forme récente"
         "handball" -> "Vainqueur handball - forme récente"
         "volleyball" -> "Vainqueur volley - forme récente"
-        "cricket" -> "Vainqueur cricket - forme récente"
-        "football", "australian_football" -> "Vainqueur - forme récente"
+        "football" -> "Vainqueur - forme récente"
         "mma", "boxing" -> "Vainqueur combat - forme récente"
         "cycling" -> "Lecture cyclisme - forme coureurs/équipes"
         "golf" -> "Lecture golf - forme récente"
         "racing", "nascar" -> "Lecture course auto - forme pilote/écurie"
         "athletics" -> "Lecture athlétisme - forme récente"
-        "darts" -> "Vainqueur fléchettes - forme récente"
-        "snooker" -> "Vainqueur snooker - forme récente"
         else -> if (isThreeWay) "Issue probable (1N2)" else "Issue probable"
     }
 
     private fun formOnlyExpectedState(event: PublicEvent, selection: String): String = when (event.sportKey.substringBefore('/')) {
         "tennis" -> "Avantage forme : $selection"
-        "rugby", "basketball", "baseball", "hockey", "field_hockey", "handball", "volleyball", "cricket", "football", "australian_football" ->
+        "rugby", "basketball", "baseball", "hockey", "handball", "volleyball", "football" ->
             "Avantage forme : $selection"
         "mma", "boxing" -> "Avantage forme/streak : $selection"
         "cycling" -> "Avantage forme coureur/équipe : $selection"
         "golf" -> "Avantage forme/parcours : $selection"
         "racing", "nascar" -> "Avantage forme pilote/écurie : $selection"
         "athletics" -> "Avantage forme/records saison : $selection"
-        "darts" -> "Avantage forme/ranking : $selection"
-        "snooker" -> "Avantage forme/frames : $selection"
         else -> ""
     }
 
@@ -1199,17 +1190,14 @@ object PublicPredictionEngine {
             "rugby" -> "Stats à compléter : points, essais/buteurs, discipline, compositions"
             "basketball" -> "Stats à compléter : points, rythme, rebonds, passes, rotations"
             "baseball" -> "Stats à compléter : runs, lanceurs, bullpen, lineups"
-            "hockey", "field_hockey" -> "Stats à compléter : buts, gardiens, supériorités, forme"
+            "hockey" -> "Stats à compléter : buts, gardiens, supériorités, forme"
             "handball" -> "Stats à compléter : buts, gardiens, exclusions, rotations"
             "volleyball" -> "Stats à compléter : sets, service/réception, forme"
-            "cricket" -> "Stats à compléter : runs, wickets, pitch, météo"
             "mma", "boxing" -> "Stats à compléter : style, méthode, rounds, cardio"
             "cycling" -> "Stats à compléter : startlist, favoris, parcours, météo, rôles d'équipe"
             "golf" -> "Stats à compléter : field, strokes gained, parcours, météo, cut"
             "racing", "nascar" -> "Stats à compléter : essais, qualifications, rythme long run, pneus, fiabilité"
             "athletics" -> "Stats à compléter : startlist, records saison, personal best, séries/finale, vent"
-            "darts" -> "Stats à compléter : moyenne, checkout, 180, format"
-            "snooker" -> "Stats à compléter : frames, centuries, ranking, format"
             else -> "Stats à compléter : forme, absences et contexte"
         }
         return listOfNotNull(home, away, sportLine)
@@ -1228,13 +1216,10 @@ object PublicPredictionEngine {
             "rugby" -> "Résultat rugby"
             "basketball" -> "Résultat basket"
             "baseball" -> "Résultat baseball"
-            "hockey", "field_hockey" -> "Résultat hockey"
+            "hockey" -> "Résultat hockey"
             "handball" -> "Résultat handball"
             "volleyball" -> "Résultat volley"
-            "cricket" -> "Résultat cricket"
             "mma", "boxing" -> "Résultat combat"
-            "darts" -> "Résultat fléchettes"
-            "snooker" -> "Résultat snooker"
             else -> "Résultat"
         }
         val closeness = (1.0 - kotlin.math.abs(homeProbability - awayProbability)).coerceIn(0.01, 0.99)
@@ -1248,10 +1233,10 @@ object PublicPredictionEngine {
                     add(ProbabilityScenario("Favori en deux sets à valider par surface", maxOf(homeProbability, awayProbability) * 0.62, "Sets"))
                 }
                 "volleyball" -> add(ProbabilityScenario("Match en 4 ou 5 sets possible", closeness * 0.74, "Sets"))
-                "rugby", "basketball", "handball", "football", "australian_football" ->
+                "rugby", "basketball", "handball", "football" ->
                     add(ProbabilityScenario("Match serré à surveiller", closeness * 0.76, "Écart"))
-                "baseball", "cricket" -> add(ProbabilityScenario("Total offensif à recalculer avec lineups/pitch", 0.65, "Total"))
-                "hockey", "field_hockey" -> add(ProbabilityScenario("Total de buts à recalculer avec gardiens", 0.66, "Total de buts"))
+                "baseball" -> add(ProbabilityScenario("Total offensif à recalculer avec lineups/pitch", 0.65, "Total"))
+                "hockey" -> add(ProbabilityScenario("Total de buts à recalculer avec gardiens", 0.66, "Total de buts"))
                 "mma", "boxing" -> add(ProbabilityScenario("Méthode/durée à recalculer après opposition de styles", 0.62, "Méthode"))
                 "cycling" -> {
                     add(ProbabilityScenario("Podium/top 10 à recalculer quand startlist et favoris sont confirmés", 0.66, "Podium/top 10"))
@@ -1269,8 +1254,6 @@ object PublicPredictionEngine {
                     add(ProbabilityScenario("Qualification à recalculer après séries/startlist", 0.66, "Qualification"))
                     add(ProbabilityScenario("Podium à surveiller avec records saison et vent", 0.62, "Podium"))
                 }
-                "darts" -> add(ProbabilityScenario("Handicap legs/sets à recalculer après format", 0.64, "Handicap"))
-                "snooker" -> add(ProbabilityScenario("Handicap frames à recalculer après format", 0.64, "Handicap"))
             }
         }.sortedByDescending { it.probability }
     }
@@ -1400,14 +1383,11 @@ object PublicPredictionEngine {
             "basketball" -> TotalMarketCopy("points", "Total de points")
             "rugby" -> TotalMarketCopy("points", "Total de points rugby")
             "baseball" -> TotalMarketCopy("runs", "Total de runs")
-            "hockey", "field_hockey" -> TotalMarketCopy("buts", "Total de buts")
+            "hockey" -> TotalMarketCopy("buts", "Total de buts")
             "handball" -> TotalMarketCopy("buts", "Total de buts handball")
             "volleyball" -> TotalMarketCopy("sets", "Total de sets")
-            "cricket" -> TotalMarketCopy("runs", "Total de runs")
-            "football", "australian_football" -> TotalMarketCopy("points", "Total de points")
+            "football" -> TotalMarketCopy("points", "Total de points")
             "tennis" -> TotalMarketCopy("jeux", "Total de jeux")
-            "darts" -> TotalMarketCopy("legs/sets", "Total legs/sets")
-            "snooker" -> TotalMarketCopy("frames", "Total de frames")
             "mma", "boxing" -> TotalMarketCopy("rounds", "Total de rounds")
             "racing", "nascar" -> TotalMarketCopy("places", "Total classement pilote")
             "cycling" -> TotalMarketCopy("places", "Total classement coureur")
@@ -1423,14 +1403,11 @@ object PublicPredictionEngine {
             "basketball" -> "Handicap points"
             "rugby" -> "Handicap points rugby"
             "baseball" -> "Run line"
-            "hockey", "field_hockey" -> "Handicap buts"
+            "hockey" -> "Handicap buts"
             "handball" -> "Handicap buts"
             "volleyball" -> "Handicap sets"
-            "cricket" -> "Handicap runs"
-            "football", "australian_football" -> "Handicap points"
+            "football" -> "Handicap points"
             "tennis" -> "Handicap jeux"
-            "darts" -> "Handicap legs/sets"
-            "snooker" -> "Handicap frames"
             "mma", "boxing" -> "Handicap rounds"
             "racing", "nascar" -> "Duel/handicap pilote"
             "cycling" -> "Duel/handicap coureur"
@@ -1661,20 +1638,6 @@ object PublicPredictionEngine {
                     ProbabilityScenario("Power play à surveiller si données disponibles", 0.60, "Supériorités"),
                 ),
             )
-            "field_hockey" -> teamSportWatchProfile(
-                event = event,
-                sportName = "hockey sur gazon",
-                selection = "Attendre buts, penalty corners, gardiens et cartons",
-                expectedStats = "buts, penalty corners, tirs cadrés, gardiens, cartons, forme récente",
-                unit = "buts",
-                resultType = "Résultat hockey gazon",
-                totalType = "Total de buts",
-                playerFocus = "buts et penalty corners provoqués",
-                extraScenarios = listOf(
-                    ProbabilityScenario("Penalty corners à recalculer si les stats sont disponibles", 0.61, "Penalty corners"),
-                    ProbabilityScenario("Cartons à surveiller selon historique disciplinaire", 0.56, "Discipline"),
-                ),
-            )
             "handball" -> teamSportWatchProfile(
                 event = event,
                 sportName = "handball",
@@ -1709,20 +1672,6 @@ object PublicPredictionEngine {
                 ),
                 confidence = 24,
             )
-            "cricket" -> teamSportWatchProfile(
-                event = event,
-                sportName = "cricket",
-                selection = "Attendre toss, pitch, runs, wickets et météo",
-                expectedStats = "runs, wickets, forme batteurs/lanceurs, format, toss, état du pitch, météo",
-                unit = "runs",
-                resultType = "Résultat cricket",
-                totalType = "Total de runs",
-                playerFocus = "runs batteur et wickets lanceur",
-                extraScenarios = listOf(
-                    ProbabilityScenario("Runs équipe à recalculer après toss et pitch", 0.67, "Runs"),
-                    ProbabilityScenario("Wickets joueur à surveiller si bowling data disponible", 0.59, "Wickets"),
-                ),
-            )
             "football" -> teamSportWatchProfile(
                 event = event,
                 sportName = "football américain",
@@ -1735,20 +1684,6 @@ object PublicPredictionEngine {
                 extraScenarios = listOf(
                     ProbabilityScenario("Touchdown joueur à calculer avec depth chart et rôle offensif", 0.60, "Touchdowns"),
                     ProbabilityScenario("Turnovers/météo à intégrer avant total points", 0.63, "Contexte"),
-                ),
-            )
-            "australian_football" -> teamSportWatchProfile(
-                event = event,
-                sportName = "football australien",
-                selection = "Attendre goals/behinds, possessions, marks et effectifs",
-                expectedStats = "points, goals/behinds, disposals, marks, tackles, effectifs, forme récente",
-                unit = "points",
-                resultType = "Résultat AFL",
-                totalType = "Total de points",
-                playerFocus = "goals, possessions et marks",
-                extraScenarios = listOf(
-                    ProbabilityScenario("Goals joueur à calculer avec rôle offensif", 0.60, "Joueurs"),
-                    ProbabilityScenario("Total points à recalculer avec rythme et météo", 0.64, "Points AFL"),
                 ),
             )
             "tennis" -> SportWatchProfile(
@@ -1916,52 +1851,12 @@ object PublicPredictionEngine {
                     ProbabilityScenario("Vent/couloir à intégrer avant temps, podium ou qualification", 0.60, "Météo"),
                 ),
             )
-            "darts" -> SportWatchProfile(
-                market = "Analyse fléchettes - données à compléter",
-                selection = "Attendre moyenne 3 fléchettes, checkout, 180 et format",
-                baselineProbability = 0.50,
-                confidence = 29,
-                expectedState = "Match de fléchettes à qualifier par forme et format",
-                explanation = "Le match est détecté. En fléchettes, le calcul doit intégrer moyenne 3 fléchettes, checkout, 180, ranking, forme récente, format legs/sets et historique direct avant de proposer vainqueur ou handicap.",
-                positiveArguments = listOf("Événement fléchettes confirmé au calendrier.", "Les marchés adaptés seront vainqueur, handicap legs/sets, total de legs et 180 si les données sont solides."),
-                negativeArguments = listOf("Format court, checkout et variance de précision peuvent renverser un favori apparent."),
-                statSummary = listOf("Match : $eventLabel", "Stats attendues : moyenne 3 fléchettes, checkout, 180, ranking, format legs/sets, face-à-face"),
-                scenarios = listOf(
-                    ProbabilityScenario("Match fléchettes confirmé au calendrier public", 1.0, "Calendrier fléchettes"),
-                    ProbabilityScenario("Vainqueur à éviter sans moyenne et checkout", 0.50, "Vainqueur"),
-                    ProbabilityScenario("Handicap legs/sets à surveiller après format confirmé", 0.64, "Handicap"),
-                    ProbabilityScenario("Total de 180 à recalculer avec moyenne récente", 0.58, "180"),
-                    ProbabilityScenario("Over legs à attendre avec format et niveau proche", 0.62, "Total legs"),
-                    ProbabilityScenario("Checkout élevé à surveiller avec réussite récente", 0.55, "Checkout"),
-                    ProbabilityScenario("Moyenne 3 fléchettes à recalculer avant tout handicap", 0.66, "Moyenne"),
-                ),
-            )
-            "snooker" -> SportWatchProfile(
-                market = "Analyse snooker - données à compléter",
-                selection = "Attendre ranking, frames, centuries et format",
-                baselineProbability = 0.50,
-                confidence = 29,
-                expectedState = "Match snooker à qualifier par frames et forme",
-                explanation = "Le match est détecté. En snooker, le calcul doit intégrer ranking, forme récente, format au meilleur des frames, centuries, breaks élevés, sécurité et historique direct avant de proposer vainqueur ou handicap.",
-                positiveArguments = listOf("Événement snooker confirmé au calendrier.", "Les marchés adaptés seront vainqueur, handicap frames, total de frames et centuries si les données sont solides."),
-                negativeArguments = listOf("Format court, table difficile et variance de breaks peuvent renverser un favori apparent."),
-                statSummary = listOf("Match : $eventLabel", "Stats attendues : ranking, forme récente, format frames, centuries, breaks, historique direct"),
-                scenarios = listOf(
-                    ProbabilityScenario("Match snooker confirmé au calendrier public", 1.0, "Calendrier snooker"),
-                    ProbabilityScenario("Vainqueur à éviter sans ranking/forme récente", 0.50, "Vainqueur"),
-                    ProbabilityScenario("Handicap frames à surveiller après format confirmé", 0.64, "Handicap frames"),
-                    ProbabilityScenario("Centuries/breaks élevés à recalculer avec forme scoring", 0.57, "Centuries"),
-                    ProbabilityScenario("Over frames à attendre si format long et niveaux proches", 0.62, "Total frames"),
-                    ProbabilityScenario("Break 50+ à surveiller avec forme scoring récente", 0.59, "Breaks"),
-                    ProbabilityScenario("Sécurité/tactical frames à intégrer avant handicap", 0.56, "Sécurité"),
-                ),
-            )
             else -> {
                 val copy = sportStatCopy(event)
                 SportWatchProfile(
                     market = "Analyse ${copy.displayName} - données à compléter",
                     selection = "Aucun favori fiable pour l'instant",
-                    baselineProbability = if (sport in setOf("soccer", "hockey", "field_hockey")) 1.0 / 3.0 else 0.50,
+                    baselineProbability = if (sport in setOf("soccer", "hockey")) 1.0 / 3.0 else 0.50,
                     confidence = 27,
                     expectedState = "Événement à qualifier par statistiques",
                     explanation = "L'événement est détecté, mais les données disponibles ne permettent pas encore de dégager un favori sérieux. L'app attend les formes, absences, compositions et statistiques récentes propres au sport.",
@@ -2024,7 +1919,7 @@ object PublicPredictionEngine {
                 marginLine = 6.5,
                 closeLine = 7.5,
             )
-            "hockey", "field_hockey" -> SportStatCopy(
+            "hockey" -> SportStatCopy(
                 displayName = "hockey",
                 totalUnit = "buts",
                 scoredLabel = "buts marqués",
@@ -2038,7 +1933,7 @@ object PublicPredictionEngine {
                 marginLine = 1.5,
                 closeLine = 1.5,
             )
-            "football", "australian_football" -> SportStatCopy(
+            "football" -> SportStatCopy(
                 displayName = "football",
                 totalUnit = "points",
                 scoredLabel = "points marqués",
@@ -2067,21 +1962,6 @@ object PublicPredictionEngine {
                 sdMultiplier = 1.5,
                 marginLine = 3.5,
                 closeLine = 4.5,
-            )
-            "cricket" -> SportStatCopy(
-                displayName = "cricket",
-                totalUnit = "runs",
-                scoredLabel = "runs inscrits",
-                concededLabel = "runs concédés",
-                marginUnit = "runs",
-                resultType = "Résultat cricket",
-                winnerMarket = "Vainqueur du match",
-                explanationMetrics = "les runs, wickets, forme batteurs/lanceurs et conditions météo",
-                warning = "Format du match, toss, météo et état du pitch peuvent modifier fortement la projection.",
-                scoreScale = 35.0,
-                fixedTotalSd = 28.0,
-                marginLine = 14.5,
-                closeLine = 18.5,
             )
             "volleyball" -> SportStatCopy(
                 displayName = "volley",
@@ -2167,15 +2047,7 @@ object PublicPredictionEngine {
                 awayScoringDrag = 0.016,
                 label = "avantage terrain domicile",
             )
-            "australian_football" -> VenueEdge(
-                strengthShift = 0.10,
-                marketShift = 0.024,
-                formShift = 0.040,
-                homeScoringBoost = 0.035,
-                awayScoringDrag = 0.014,
-                label = "avantage terrain domicile",
-            )
-            "hockey", "field_hockey" -> VenueEdge(
+            "hockey" -> VenueEdge(
                 strengthShift = 0.09,
                 marketShift = 0.022,
                 formShift = 0.036,
@@ -2198,14 +2070,6 @@ object PublicPredictionEngine {
                 homeScoringBoost = 0.022,
                 awayScoringDrag = 0.006,
                 label = "avantage stade domicile",
-            )
-            "cricket" -> VenueEdge(
-                strengthShift = 0.07,
-                marketShift = 0.018,
-                formShift = 0.030,
-                homeScoringBoost = 0.026,
-                awayScoringDrag = 0.008,
-                label = "avantage conditions locales",
             )
             else -> null
         }

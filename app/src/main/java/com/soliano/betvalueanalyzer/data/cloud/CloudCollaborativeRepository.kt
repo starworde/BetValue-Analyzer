@@ -9,6 +9,7 @@ import com.google.firebase.firestore.SetOptions
 import com.soliano.betvalueanalyzer.data.PreferencesRepository
 import com.soliano.betvalueanalyzer.data.local.PredictionDao
 import com.soliano.betvalueanalyzer.data.local.UpcomingEventDao
+import com.soliano.betvalueanalyzer.domain.RemovedSports
 import java.io.File
 import java.util.Locale
 import java.util.concurrent.TimeUnit
@@ -51,9 +52,12 @@ class CloudCollaborativeRepository(
                 return@runCatching report
             }
 
+            runCatching { remoteDataSource.deleteSports(RemovedSports.keys) }
             val deviceId = if (publishLocal || fetchCloud) remoteDataSource.anonymousDeviceId() else ""
             val localPredictions = predictionDao.getUpcoming(now)
+                .filter { RemovedSports.isAllowedSportKey(it.sportKey) }
             val localEvents = upcomingEventDao.getActive(now, now - 48 * 60 * 60 * 1000L)
+                .filter { RemovedSports.isAllowedSportKey(it.sportKey) }
             var attemptedUpload = 0
             var uploaded = 0
             var lastUpload = settings.lastCloudUploadEpoch
@@ -105,6 +109,7 @@ class CloudCollaborativeRepository(
             if (fetchCloud) {
                 runCatching {
                     val cloudResults = remoteDataSource.fetchRecent(now, CLOUD_MAX_FETCH_PER_SYNC)
+                        .filter { RemovedSports.isAllowedSportKey(it.sport) }
                     fetchedCount = cloudResults.size
                     val merge = mergeCloudResults(localPredictions, cloudResults, now)
                     rejectedCount = merge.rejectedCloudCount
@@ -193,6 +198,7 @@ interface CloudCollaborativeRemoteDataSource {
     fun publishCalendarEvents(events: List<CloudSharedCalendarEvent>): Int
     fun fetchRecent(now: Long, limit: Long): List<CloudSharedResult>
     fun fetchKnownDocumentIds(now: Long, limit: Long): Set<String>
+    fun deleteSports(sports: Set<String>): Int
 }
 
 class FirebaseCloudCollaborativeRemoteDataSource(
@@ -321,6 +327,37 @@ class FirebaseCloudCollaborativeRemoteDataSource(
             )
             snapshot.documents.map { it.id }.toSet()
         }.getOrDefault(emptySet())
+    }
+
+    override fun deleteSports(sports: Set<String>): Int {
+        if (sports.isEmpty()) return 0
+        val firestore = firestoreOrNull() ?: return 0
+        val normalizedSports = sports.map { it.substringBefore('/').trim() }.filter { it.isNotBlank() }.distinct()
+        if (normalizedSports.isEmpty()) return 0
+        var deleted = 0
+        listOf("shared_results", "cloud_results").forEach { collectionName ->
+            normalizedSports.chunked(10).forEach { chunk ->
+                while (true) {
+                    val snapshot = runCatching {
+                        Tasks.await(
+                            firestore.collection(collectionName)
+                                .whereIn("sport", chunk)
+                                .limit(CLOUD_FIRESTORE_BATCH_LIMIT.toLong())
+                                .get(),
+                            12,
+                            TimeUnit.SECONDS,
+                        )
+                    }.getOrNull() ?: break
+                    if (snapshot.isEmpty) break
+                    val batch = firestore.batch()
+                    snapshot.documents.forEach { document -> batch.delete(document.reference) }
+                    Tasks.await(batch.commit(), 15, TimeUnit.SECONDS)
+                    deleted += snapshot.size()
+                    if (snapshot.size() < CLOUD_FIRESTORE_BATCH_LIMIT) break
+                }
+            }
+        }
+        return deleted
     }
 
     private fun firestoreOrNull(): FirebaseFirestore? {

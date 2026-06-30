@@ -59,7 +59,6 @@ object SportsCatalog {
         )),
         CatalogSport("mma", "MMA", listOf(competition("mma", "ufc", "UFC"))),
         CatalogSport("boxing", "Boxe", emptyList()),
-        CatalogSport("australian_football", "Football australien", listOf(competition("australian_football", "tsdb-4456", "Australian AFL"))),
         CatalogSport("handball", "Handball", listOf(
             competition("handball", "tsdb-4980", "EHF Champions League"),
             competition("handball", "tsdb-5275", "EHF European League"),
@@ -73,13 +72,6 @@ object SportsCatalog {
             competition("volleyball", "tsdb-5613", "Championnat d'Europe masculin"),
             competition("volleyball", "tsdb-5614", "CEV Challenge Cup"),
         )),
-        CatalogSport("darts", "Fléchettes", listOf(competition("darts", "tsdb-4554", "PDC Darts"))),
-        CatalogSport("cricket", "Cricket", listOf(
-            competition("cricket", "tsdb-4461", "Big Bash League"),
-            competition("cricket", "tsdb-5176", "Caribbean Premier League"),
-            competition("cricket", "tsdb-5529", "Bangladesh Premier League"),
-            competition("cricket", "tsdb-5530", "Sheffield Shield"),
-        )),
         CatalogSport("athletics", "Athlétisme", listOf(
             competition("athletics", "tsdb-5007", "World Athletics Championships"),
             competition("athletics", "tsdb-5788", "World Athletics Ultimate Championship"),
@@ -88,12 +80,13 @@ object SportsCatalog {
         CatalogSport("baseball", "Baseball", listOf(competition("baseball", "mlb", "MLB"))),
         CatalogSport("hockey", "Hockey", listOf(competition("hockey", "nhl", "NHL"))),
         CatalogSport("football", "Football américain", listOf(competition("football", "nfl", "NFL"))),
-    )
+    ).filterNot { RemovedSports.isRemovedSportKey(it.key) }
 
     @Suppress("UNUSED_PARAMETER")
     private fun sport(key: String, name: String, competitionNames: List<String>, league: String): CatalogSport =
         CatalogSport(key, name, competitionNames.map { competition(key, league, it) })
 
+    @Suppress("UNUSED_PARAMETER")
     private fun competition(sport: String, league: String, name: String): CatalogCompetition {
         return CatalogCompetition(competitionFavoriteKey(sport, name), sport, canonicalCompetitionName(name))
     }

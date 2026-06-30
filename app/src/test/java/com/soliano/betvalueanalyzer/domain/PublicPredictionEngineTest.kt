@@ -508,11 +508,8 @@ class PublicPredictionEngineTest {
             "golf" to listOf("strokes gained", "parcours"),
             "mma" to listOf("grappling", "soumission"),
             "boxing" to listOf("ko/tko", "rounds"),
-            "australian_football" to listOf("goals/behinds", "marks"),
             "handball" to listOf("exclusions", "gardiens"),
             "volleyball" to listOf("réception", "aces"),
-            "darts" to listOf("checkout", "180"),
-            "cricket" to listOf("wickets", "pitch"),
             "athletics" to listOf("records saison", "startlist"),
             "baseball" to listOf("lanceurs", "home runs"),
             "hockey" to listOf("gardiens", "power play"),
@@ -581,7 +578,6 @@ class PublicPredictionEngineTest {
             "racing" to listOf("Top 10", "Stratégie", "Fiabilité"),
             "nascar" to listOf("Cautions", "Track position", "Fiabilité"),
             "athletics" to listOf("Finale", "Records", "Duel"),
-            "darts" to listOf("180", "Checkout", "Moyenne"),
         )
 
         checks.forEach { (sportKey, requiredTypes) ->
@@ -634,23 +630,8 @@ class PublicPredictionEngineTest {
             )
         ).first { it.id.contains(":spread:") }
 
-        val snookerTotal = PublicPredictionEngine.analyze(
-            event(
-                homeOdds = 1.90,
-                awayOdds = 1.90,
-                sportKey = "snooker/all",
-                sportTitle = "Snooker",
-                homeTeam = "Joueur A",
-                awayTeam = "Joueur B",
-                totalLine = 9.5,
-                overOdds = 1.55,
-                underOdds = 2.60,
-            )
-        ).first { it.market == "Total de frames" }
-
         assertTrue(tennisTotal.selection.contains("jeux"))
         assertEquals("Run line", baseballSpread.market)
-        assertTrue(snookerTotal.selection.contains("frames"))
     }
 
     @Test

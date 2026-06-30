@@ -2,6 +2,7 @@ package com.soliano.betvalueanalyzer.data.cloud
 
 import com.soliano.betvalueanalyzer.data.local.PredictionEntity
 import com.soliano.betvalueanalyzer.data.local.UpcomingEventEntity
+import com.soliano.betvalueanalyzer.domain.RemovedSports
 import com.soliano.betvalueanalyzer.domain.competitionFavoriteKey
 import java.util.Locale
 import kotlin.math.abs
@@ -103,6 +104,7 @@ fun PredictionEntity.toCloudSharedResult(
     now: Long,
 ): CloudSharedResult? {
     if (eventId.isBlank() || sportKey.isBlank() || competitionName.isBlank()) return null
+    if (!RemovedSports.isAllowedSportKey(sportKey)) return null
     if (homeTeam.isBlank() && awayTeam.isBlank()) return null
     if (market.isBlank() || selection.isBlank()) return null
     if (confidenceScore !in 1..100) return null
@@ -189,6 +191,7 @@ fun UpcomingEventEntity.toCloudSharedCalendarEvent(
     now: Long,
 ): CloudSharedCalendarEvent? {
     if (id.isBlank() || sportKey.isBlank() || competitionName.isBlank()) return null
+    if (!RemovedSports.isAllowedSportKey(sportKey)) return null
     if (eventName.isBlank() && participantA.isBlank() && participantB.isBlank()) return null
     if (commenceTime < now - MAX_EVENT_LOOKBACK_MS) return null
     if (appVersion.isBlank() || deviceId.isBlank()) return null
@@ -219,6 +222,7 @@ fun UpcomingEventEntity.toCloudSharedCalendarEvent(
 
 fun CloudSharedResult.isCoherent(now: Long): Boolean {
     if (eventId.isBlank() || sport.isBlank() || competition.isBlank() || eventName.isBlank()) return false
+    if (!RemovedSports.isAllowedSportKey(sport)) return false
     if (eventDate <= 0L || updatedAt <= 0L || expiresAt <= 0L) return false
     if (updatedAt > now + MAX_CLOCK_SKEW_MS) return false
     if (updatedAt < now - MAX_CLOUD_RESULT_AGE_MS) return false
@@ -233,6 +237,7 @@ fun CloudSharedResult.isCoherent(now: Long): Boolean {
 
 fun CloudSharedCalendarEvent.isCoherent(now: Long): Boolean {
     if (eventId.isBlank() || sport.isBlank() || competition.isBlank() || eventName.isBlank()) return false
+    if (!RemovedSports.isAllowedSportKey(sport)) return false
     if (eventDate <= 0L || updatedAt <= 0L || expiresAt <= 0L) return false
     if (updatedAt > now + MAX_CLOCK_SKEW_MS) return false
     if (eventDate < now - MAX_EVENT_LOOKBACK_MS) return false

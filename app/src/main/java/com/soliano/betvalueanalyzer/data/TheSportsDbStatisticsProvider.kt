@@ -100,10 +100,8 @@ class TheSportsDbStatisticsProvider(private val api: PublicSportsApiService) {
         "rugby" -> setOf("Rugby", "Rugby Union", "Rugby League")
         "hockey" -> setOf("Ice Hockey", "Hockey")
         "football" -> setOf("American Football")
-        "australian_football" -> setOf("Australian Rules Football", "Australian Football")
         "handball" -> setOf("Handball")
         "volleyball" -> setOf("Volleyball")
-        "cricket" -> setOf("Cricket")
         else -> emptySet()
     }
 
@@ -111,8 +109,7 @@ class TheSportsDbStatisticsProvider(private val api: PublicSportsApiService) {
         "soccer", "hockey", "volleyball" -> 18.0
         "baseball" -> 45.0
         "rugby", "handball" -> 95.0
-        "basketball", "football", "australian_football" -> 260.0
-        "cricket" -> 800.0
+        "basketball", "football" -> 260.0
         else -> 60.0
     }
 

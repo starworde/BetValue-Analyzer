@@ -32,7 +32,7 @@ class DisplayNamesTest {
     @Test
     fun `mojibake accents are cleaned before display`() {
         assertEquals("Athlétisme", cleanDisplayText("AthlÃ©tisme"))
-        assertEquals("Fléchettes", cleanDisplayText("FlÃ©chettes"))
+        assertEquals("Actualité", cleanDisplayText("ActualitÃ©"))
         assertEquals("Événement suivi", cleanDisplayText("Ã‰vÃ©nement suivi"))
         assertEquals("Cœur du jeu", cleanDisplayText("Cœur du jeu"))
         assertEquals("Œuvre collective", cleanDisplayText("Œuvre collective"))

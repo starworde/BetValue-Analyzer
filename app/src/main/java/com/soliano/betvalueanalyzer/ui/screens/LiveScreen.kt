@@ -278,6 +278,6 @@ private fun sportAccent(sportKey: String): Color = when (sportKey.substringBefor
     "racing", "nascar" -> Color(0xFFFF7A59)
     "golf" -> Color(0xFF74E0A3)
     "mma", "boxing" -> Color(0xFFFF5E91)
-    "hockey", "field_hockey" -> Color(0xFF8FD3FF)
+    "hockey" -> Color(0xFF8FD3FF)
     else -> Violet
 }

@@ -35,7 +35,6 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -200,10 +199,15 @@ fun SportsScreen(
             competitions
         }
     }
-    val visibleEvents by remember(eventSearchIndex, futureEvents, searchActive, normalizedQuery, selectedSport, selectedCompetition) {
-        derivedStateOf {
+    var visibleEvents by remember { mutableStateOf(emptyList<UpcomingEventEntity>()) }
+    LaunchedEffect(eventSearchIndex, futureEvents, searchActive, normalizedQuery, selectedSport, selectedCompetition) {
+        val eventIndexSnapshot = eventSearchIndex
+        val futureSnapshot = futureEvents
+        val selectedSportSnapshot = selectedSport
+        val selectedCompetitionSnapshot = selectedCompetition
+        visibleEvents = withContext(Dispatchers.Default) {
             if (searchActive) {
-                eventSearchIndex
+                eventIndexSnapshot
                     .asSequence()
                     .filter { matchesNormalizedSearch(it.searchText, normalizedQuery) }
                     .map { it.event }
@@ -211,10 +215,11 @@ fun SportsScreen(
                     .take(MAX_SPORT_SEARCH_RESULTS)
                     .toList()
             } else {
-                futureEvents
+                futureSnapshot
                     .asSequence()
                     .filter { event ->
-                        event.sportKey == selectedSport && (selectedCompetition == null || event.competitionKey == selectedCompetition)
+                        event.sportKey == selectedSportSnapshot &&
+                            (selectedCompetitionSnapshot == null || event.competitionKey == selectedCompetitionSnapshot)
                     }
                     .toList()
             }
@@ -667,22 +672,19 @@ private fun UpcomingEventEntity.deepAnalysisAvailable(): Boolean = sportKey.subs
     "football",
     "handball",
     "volleyball",
-    "cricket",
-    "australian_football",
     "tennis",
     "golf",
     "mma",
     "boxing",
     "nascar",
-    "darts",
     "athletics",
     "racing",
     "cycling",
 ) || eventType == "GP"
 
 private fun sportAccent(sportKey: String): Color = when (sportKey.substringBefore('/')) {
-    "soccer", "rugby", "golf", "darts" -> Mint
-    "basketball", "baseball", "football", "hockey", "handball", "volleyball", "australian_football", "cricket" -> Blue
+    "soccer", "rugby", "golf" -> Mint
+    "basketball", "baseball", "football", "hockey", "handball", "volleyball" -> Blue
     "cycling", "athletics" -> Amber
     "racing", "nascar", "tennis" -> Violet
     "mma", "boxing" -> Danger

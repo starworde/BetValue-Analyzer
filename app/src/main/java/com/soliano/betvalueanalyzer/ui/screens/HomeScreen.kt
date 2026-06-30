@@ -582,22 +582,19 @@ private fun UpcomingEventEntity.deepAnalysisAvailable(): Boolean = sportKey.subs
     "football",
     "handball",
     "volleyball",
-    "cricket",
-    "australian_football",
     "tennis",
     "golf",
     "mma",
     "boxing",
     "nascar",
-    "darts",
     "athletics",
     "racing",
     "cycling",
 ) || eventType == "GP"
 
 private fun sportAccent(sportKey: String): Color = when (sportKey.substringBefore('/')) {
-    "soccer", "rugby", "golf", "darts" -> Mint
-    "basketball", "baseball", "football", "hockey", "handball", "volleyball", "australian_football", "cricket" -> Blue
+    "soccer", "rugby", "golf" -> Mint
+    "basketball", "baseball", "football", "hockey", "handball", "volleyball" -> Blue
     "cycling", "athletics" -> Amber
     "racing", "nascar", "tennis" -> Violet
     "mma", "boxing" -> Danger

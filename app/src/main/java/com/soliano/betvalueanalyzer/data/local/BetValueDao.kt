@@ -57,6 +57,9 @@ interface PredictionDao {
     @Query("DELETE FROM predictions")
     suspend fun deleteAll()
 
+    @Query("DELETE FROM predictions WHERE sportKey = :sport OR sportKey LIKE :prefix")
+    suspend fun deleteBySportPrefix(sport: String, prefix: String)
+
     @Query("SELECT * FROM predictions WHERE id LIKE '%:deep:%' AND commenceTime > :now")
     suspend fun getDeepUpcoming(now: Long): List<PredictionEntity>
 
@@ -80,6 +83,9 @@ interface UpcomingEventDao {
 
     @Query("DELETE FROM upcoming_events")
     suspend fun deleteAll()
+
+    @Query("DELETE FROM upcoming_events WHERE sportKey = :sport OR sportKey LIKE :prefix")
+    suspend fun deleteBySportPrefix(sport: String, prefix: String)
 
     @Query("UPDATE upcoming_events SET analysisId = :analysisId WHERE id = :eventId")
     suspend fun setAnalysisId(eventId: String, analysisId: String)
@@ -111,6 +117,9 @@ interface LiveEventDao {
 
     @Query("DELETE FROM live_events")
     suspend fun deleteAll()
+
+    @Query("DELETE FROM live_events WHERE sportKey = :sport OR sportKey LIKE :prefix")
+    suspend fun deleteBySportPrefix(sport: String, prefix: String)
 
     @Transaction
     suspend fun replaceAll(events: List<LiveEventEntity>) {

@@ -36,14 +36,9 @@ class LiveProjectionEngineTest {
         val expectedTokens = mapOf(
             "baseball" to listOf("bullpen", "home run", "strikeouts"),
             "hockey" to listOf("power play", "gardien", "tirs"),
-            "field_hockey" to listOf("penalty corner", "carton", "possession"),
             "football" to listOf("touchdown", "turnover", "red zone"),
-            "australian_football" to listOf("goals", "inside 50", "disposals"),
             "handball" to listOf("exclusion", "gardien", "7m"),
             "volleyball" to listOf("aces", "réception", "contres"),
-            "cricket" to listOf("wicket", "run rate", "batteur"),
-            "darts" to listOf("180", "checkout", "legs"),
-            "snooker" to listOf("frames", "century", "sécurité"),
             "athletics" to listOf("startlist", "season best", "qualification"),
         )
 

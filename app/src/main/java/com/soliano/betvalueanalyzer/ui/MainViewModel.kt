@@ -164,7 +164,7 @@ class MainViewModel(
         preferencesRepository.settings,
     ) { sports, odds, settings ->
         AppUiState(
-            sports = sports,
+            sports = sports.map { it.cleanedForDisplay() },
             predictions = odds.predictions,
             upcomingEvents = odds.events,
             liveEvents = odds.liveEvents,
@@ -185,6 +185,10 @@ class MainViewModel(
         viewModelScope.launch {
             runCatching { analysisRepository.seedIfNeeded() }
                 .onFailure { messages.emit("Initialisation impossible : ${it.message}") }
+            runCatching {
+                preferencesRepository.purgeRemovedSports()
+                oddsRepository.cleanupRemovedSports()
+            }.onFailure { messages.emit("Nettoyage des anciens sports impossible : ${it.message}") }
             val settings = preferencesRepository.settings.first()
             if (settings.cloudCollaborativeEnabled) {
                 syncCloudInBackground(showMessage = false, publishLocal = false, fetchCloud = true)
@@ -623,6 +627,11 @@ private data class OddsUiStreams(
     val liveEvents: List<LiveEventEntity>,
 )
 
+private fun SportEntity.cleanedForDisplay(): SportEntity = copy(
+    name = cleanDisplayText(name),
+    category = cleanDisplayText(category),
+)
+
 private fun List<PredictionEntity>.deduplicatedPredictionsForDisplay(): List<PredictionEntity> {
     if (size < 2) return this
     val bestByEvent = LinkedHashMap<String, PredictionEntity>()
@@ -734,8 +743,6 @@ private val TEAM_DEEP_SPORTS = setOf(
     "football",
     "handball",
     "volleyball",
-    "cricket",
-    "australian_football",
 )
 
 private val STANDALONE_DEEP_SPORTS = setOf(
@@ -744,7 +751,6 @@ private val STANDALONE_DEEP_SPORTS = setOf(
     "mma",
     "boxing",
     "nascar",
-    "darts",
     "athletics",
 )
 

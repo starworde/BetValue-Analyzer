@@ -42,7 +42,7 @@ object LiveWindowPolicy {
     private fun estimatedDurationMs(sport: String): Long = when (sport) {
         "soccer", "football", "rugby", "hockey", "handball" -> 2L * 60L * 60L * 1000L
         "basketball", "volleyball" -> 2L * 60L * 60L * 1000L
-        "baseball", "cricket", "tennis", "mma", "boxing", "darts" -> 3L * 60L * 60L * 1000L
+        "baseball", "tennis", "mma", "boxing" -> 3L * 60L * 60L * 1000L
         "racing", "nascar" -> 2L * 60L * 60L * 1000L
         "cycling", "golf" -> 5L * 60L * 60L * 1000L
         "athletics" -> 90L * 60L * 1000L

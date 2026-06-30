@@ -28,6 +28,9 @@ data class LiveProjection(
 object LiveProjectionEngine {
     fun analyze(event: LiveEventSnapshot): LiveProjection {
         val sport = event.sportKey.substringBefore('/')
+        if (!RemovedSports.isAllowedSportKey(sport)) {
+            return LiveProjection(emptyList(), emptyList())
+        }
         val profile = liveSportProfile(sport)
         val venue = if (isNeutralVenueCompetition(
                 sportKey = event.sportKey,
@@ -162,13 +165,13 @@ object LiveProjectionEngine {
             .toDoubleOrNull()
         val periodValue = period ?: 1
         return when (sport) {
-            "soccer", "rugby", "field_hockey" -> (rawClock ?: 0.0) / 90.0
+            "soccer", "rugby" -> (rawClock ?: 0.0) / 90.0
             "basketball" -> ((periodValue - 1) * 12 + (rawClock ?: 0.0)) / 48.0
             "football" -> ((periodValue - 1) * 15 + (rawClock ?: 0.0)) / 60.0
             "baseball" -> periodValue / 9.0
             "hockey" -> ((periodValue - 1) * 20 + (rawClock ?: 0.0)) / 60.0
             "handball" -> (rawClock ?: 0.0) / 60.0
-            "volleyball", "tennis", "darts", "snooker" -> periodValue / 5.0
+            "volleyball", "tennis" -> periodValue / 5.0
             else -> if (statusState.equals("in", true)) 0.50 else 0.05
         }.coerceIn(0.05, 0.97)
     }
@@ -258,13 +261,10 @@ object LiveProjectionEngine {
         "basketball" -> "vainqueur live, total points, prochain run, écart/handicap, fautes, rebonds, tirs à 3 points et rotations"
         "tennis" -> "vainqueur match, score en sets, total jeux, prochain jeu, break, tie-break, aces et doubles fautes"
         "baseball" -> "vainqueur live, total runs, prochain run, manches, hits, home runs, bullpen et strikeouts"
-        "hockey", "field_hockey" -> "vainqueur live, total buts, prochain but, tirs, power play/penalty corner, gardien et discipline"
-        "football", "australian_football" -> "vainqueur live, total points, prochain touchdown/score, yards, turnovers, sacks et blessures"
+        "hockey" -> "vainqueur live, total buts, prochain but, tirs, power play, gardien et discipline"
+        "football" -> "vainqueur live, total points, prochain touchdown/score, yards, turnovers, sacks et blessures"
         "handball" -> "vainqueur live, total buts, prochain but, arrêts gardien, exclusions, pertes de balle et rotations"
         "volleyball" -> "vainqueur live, score en sets, total points, prochain break, aces, contres, réception et erreurs"
-        "cricket" -> "vainqueur live, total runs, wickets, run rate, batteurs, lanceurs, overs et météo/pitch"
-        "darts" -> "vainqueur live, score legs/sets, 180, checkout, moyenne 3 fléchettes et pression doubles"
-        "snooker" -> "vainqueur live, score frames, centuries, breaks 50+, sécurité, erreurs et format"
         "cycling" -> "classement live, top 3/top 10, échappée, attaque, sprint, maillot, abandon, météo et écarts"
         "racing" -> "classement live, top 3, stratégie pneus, pit stops, safety car, pluie, abandon et rythme course"
         "nascar" -> "classement live, top 3/top 10, cautions, restart, pit stops, crash, abandon et track position"
@@ -407,8 +407,8 @@ object LiveProjectionEngine {
                 ProbabilityScenario("Pénalité tardive peut inverser total et vainqueur", 0.50, "Discipline"),
             ) },
         )
-        "field_hockey" -> LiveSportProfile(
-            displayName = "hockey sur gazon",
+        "removed_sport_1" -> LiveSportProfile(
+            displayName = "sport retiré",
             unit = "buts",
             marginUnit = "but(s)",
             keyStats = "buts, tirs cadrés, penalty corners, cartons, possession, gardien et efficacité offensive",
@@ -428,30 +428,22 @@ object LiveProjectionEngine {
                 ProbabilityScenario("Carton peut changer possession et total", 0.49, "Cartons"),
             ) },
         )
-        "football", "australian_football" -> LiveSportProfile(
-            displayName = if (sport == "football") "football américain" else "football australien",
+        "football" -> LiveSportProfile(
+            displayName = "football américain",
             unit = "points",
             marginUnit = "points",
-            keyStats = if (sport == "football") {
-                "touchdowns, yards, QB, turnovers, sacks, red zone, 3rd down, field goals et météo"
-            } else {
-                "goals/behinds, disposals, marks, tackles, inside 50, clearances, météo et efficacité au tir"
-            },
-            contextStats = if (sport == "football") {
-                "QB titulaire, ligne offensive, blessures, turnovers, horloge, jeu au sol et météo"
-            } else {
-                "pression, efficacité goals/behinds, milieu, fatigue, météo et matchups"
-            },
-            nextAction = if (sport == "football") "touchdown/field goal" else "goal/behind",
+            keyStats = "touchdowns, yards, QB, turnovers, sacks, red zone, 3rd down, field goals et météo",
+            contextStats = "QB titulaire, ligne offensive, blessures, turnovers, horloge, jeu au sol et météo",
+            nextAction = "touchdown/field goal",
             nextActionType = "Prochain score",
             resultType = "Vainqueur live",
             totalType = "Total points live",
             momentumType = "Possession/momentum",
             closeType = "Écart live",
-            defaultTotal = if (sport == "football") 45.0 else 165.0,
-            expectedLateTotal = if (sport == "football") 28.0 else 70.0,
-            variance = if (sport == "football") 9.0 else 18.0,
-            closeMargin = if (sport == "football") 7.0 else 12.0,
+            defaultTotal = 45.0,
+            expectedLateTotal = 28.0,
+            variance = 9.0,
+            closeMargin = 7.0,
             extraScenarios = { _, _, remaining, _ -> listOf(
                 ProbabilityScenario("Turnover peut inverser le handicap immédiatement", 0.52, "Turnovers"),
                 ProbabilityScenario("Red zone/inside 50 à suivre sur prochaine possession", (0.40 + remaining * 0.18).coerceAtMost(0.66), "Territoire"),
@@ -502,18 +494,18 @@ object LiveProjectionEngine {
                 ProbabilityScenario("Contres au filet à surveiller sur matchup central", 0.51, "Contres"),
             ) },
         )
-        "cricket" -> LiveSportProfile(
-            displayName = "cricket",
+        "removed_sport_2" -> LiveSportProfile(
+            displayName = "sport retiré",
             unit = "runs",
             marginUnit = "run(s)",
             keyStats = "runs, wickets, overs, run rate, required run rate, pitch, toss, powerplay et boundaries",
             contextStats = "wickets en main, état du pitch, météo/rosée, ordre de batte, lanceurs restants et run rate requis",
             nextAction = "wicket/run",
             nextActionType = "Prochain wicket/run",
-            resultType = "Vainqueur cricket live",
+            resultType = "Vainqueur live",
             totalType = "Total runs live",
             momentumType = "Run rate/momentum",
-            closeType = "Écart cricket",
+            closeType = "Écart live",
             defaultTotal = 165.0,
             expectedLateTotal = 80.0,
             variance = 24.0,
@@ -578,15 +570,15 @@ object LiveProjectionEngine {
                 ProbabilityScenario("Blessure/cut/dégâts peuvent inverser la projection", 0.50, "Risque combat"),
             ) },
         )
-        "darts" -> LiveSportProfile(
-            displayName = "fléchettes",
+        "removed_sport_3" -> LiveSportProfile(
+            displayName = "sport retiré",
             unit = "legs",
             marginUnit = "leg(s)",
-            keyStats = "moyenne 3 fléchettes, 180, checkout, doubles, legs/sets, break de lancer et pression",
+            keyStats = "score, réussite, pression, format et momentum",
             contextStats = "format, doubles sous pression, scoring récent, public, historique direct et fatigue tournoi",
             nextAction = "leg/checkout",
             nextActionType = "Prochain leg",
-            resultType = "Vainqueur darts live",
+            resultType = "Vainqueur live",
             totalType = "Total legs live",
             momentumType = "Checkout/momentum",
             closeType = "Legs serrés",
@@ -600,15 +592,15 @@ object LiveProjectionEngine {
                 ProbabilityScenario("Over legs si breaks de lancer et doubles instables", 0.58, "Total legs"),
             ) },
         )
-        "snooker" -> LiveSportProfile(
-            displayName = "snooker",
+        "removed_sport_4" -> LiveSportProfile(
+            displayName = "sport retiré",
             unit = "frames",
             marginUnit = "frame(s)",
             keyStats = "frames, breaks 50+, centuries, safety, long pot, erreurs, ranking et format",
             contextStats = "format, table, sécurité, pression, scoring récent, fatigue tournoi et historique direct",
             nextAction = "frame/break",
             nextActionType = "Prochaine frame",
-            resultType = "Vainqueur snooker live",
+            resultType = "Vainqueur live",
             totalType = "Total frames live",
             momentumType = "Break/momentum",
             closeType = "Frames serrées",
@@ -665,20 +657,17 @@ object LiveProjectionEngine {
     private fun genericProfile(sport: String): LiveSportProfile {
         val labels = when (sport) {
             "baseball" -> listOf("baseball", "runs, manches, lanceur, bullpen, hits, home runs et erreurs", "lanceurs, bullpen, lineups, météo et état du terrain", "run")
-            "hockey", "field_hockey" -> listOf("hockey", "buts, tirs, power play, pénalités, gardiens et possession", "gardiens, supériorités numériques, fatigue et discipline", "but")
-            "football", "australian_football" -> listOf("football", "touchdowns, yards, turnovers, quarterback, possessions et météo", "QB, blessures, turnovers, terrain et gestion horloge", "touchdown/score")
+            "hockey" -> listOf("hockey", "buts, tirs, power play, pénalités, gardiens et possession", "gardiens, supériorités numériques, fatigue et discipline", "but")
+            "football" -> listOf("football", "touchdowns, yards, turnovers, quarterback, possessions et météo", "QB, blessures, turnovers, terrain et gestion horloge", "touchdown/score")
             "handball" -> listOf("handball", "buts, arrêts gardien, exclusions, pertes de balle, rythme et efficacité ailes/pivots", "gardiens, exclusions, rotations, jeu rapide et fatigue", "but")
             "volleyball" -> listOf("volley", "sets, points, aces, réception, contres, efficacité attaque et erreurs", "réception, passeur, rotations, service et fautes directes", "point/break")
-            "cricket" -> listOf("cricket", "runs, wickets, overs, run rate, pitch, batteurs et lanceurs", "toss, météo, pitch, wickets en main et run rate requis", "wicket/run")
-            "darts" -> listOf("fléchettes", "moyenne 3 fléchettes, checkout, 180, legs/sets et doubles", "checkout, pression, format, legs restants et réussite doubles", "leg/checkout")
-            "snooker" -> listOf("snooker", "frames, breaks, centuries, safety, erreurs et format", "frames restants, scoring, sécurité, table et pression", "frame/break")
             "athletics" -> listOf("athlétisme", "startlist, records saison, séries/finale, temps, vent et couloirs", "records, vent, séries, couloir, fatigue et forfaits", "qualification/médaille")
             else -> listOf("sport", "score, rythme, fautes, forme, absences et momentum", "score live, fatigue, rotations et contexte", "score")
         }
         return LiveSportProfile(
             displayName = labels[0],
-            unit = if (sport in setOf("baseball", "cricket")) "runs" else "points",
-            marginUnit = if (sport in setOf("baseball", "cricket")) "run(s)" else "point(s)",
+            unit = if (sport == "baseball") "runs" else "points",
+            marginUnit = if (sport == "baseball") "run(s)" else "point(s)",
             keyStats = labels[1],
             contextStats = labels[2],
             nextAction = labels[3],
@@ -687,10 +676,10 @@ object LiveProjectionEngine {
             totalType = "Total live",
             momentumType = "Momentum",
             closeType = "Fin serrée",
-            defaultTotal = if (sport in setOf("baseball", "cricket")) 8.0 else 35.0,
-            expectedLateTotal = if (sport in setOf("baseball", "cricket")) 6.0 else 20.0,
-            variance = if (sport in setOf("baseball", "cricket")) 2.5 else 7.0,
-            closeMargin = if (sport in setOf("baseball", "cricket")) 2.0 else 6.0,
+            defaultTotal = if (sport == "baseball") 8.0 else 35.0,
+            expectedLateTotal = if (sport == "baseball") 6.0 else 20.0,
+            variance = if (sport == "baseball") 2.5 else 7.0,
+            closeMargin = if (sport == "baseball") 2.0 else 6.0,
             extraScenarios = { _, _, remaining, _ -> listOf(
                 ProbabilityScenario("Momentum à recalculer après prochaine possession/phase", (0.48 + remaining * 0.16).coerceAtMost(0.70), "Momentum"),
                 ProbabilityScenario("Stats joueurs clés à surveiller dès disponibles", 0.62, "Joueurs"),
@@ -723,11 +712,9 @@ object LiveProjectionEngine {
             "basketball" -> 0.61
             "handball" -> 0.62
             "football" -> 0.62
-            "australian_football" -> 0.60
-            "hockey", "field_hockey" -> 0.59
+            "hockey" -> 0.59
             "volleyball" -> 0.58
             "baseball" -> 0.56
-            "cricket" -> 0.57
             else -> return null
         }
         return LiveVenueEdge(

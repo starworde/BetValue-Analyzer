@@ -3,6 +3,7 @@ package com.soliano.betvalueanalyzer.data
 import com.soliano.betvalueanalyzer.data.local.AnalysisDao
 import com.soliano.betvalueanalyzer.data.local.SportDao
 import com.soliano.betvalueanalyzer.data.local.SportEntity
+import com.soliano.betvalueanalyzer.domain.RemovedSports
 import kotlinx.coroutines.flow.Flow
 
 class AnalysisRepository(
@@ -25,7 +26,17 @@ class AnalysisRepository(
 
     suspend fun seedIfNeeded() {
         if (sportDao.count() == 0) sportDao.insertAll(defaultSports())
-        sportDao.deleteByNames(listOf("Hockey sur gazon", "Snooker"))
+        sportDao.deleteByNames(
+            listOf(
+                "Hockey sur gazon",
+                "Snooker",
+                "Football australien",
+                "Fléchettes",
+                "Fléchettes / Darts",
+                "Darts",
+                "Cricket",
+            )
+        )
         analysisDao.deleteDemoRecords()
     }
 
@@ -33,12 +44,11 @@ class AnalysisRepository(
         val groups = linkedMapOf(
             "Collectifs" to listOf(
                 "Football", "Basketball", "Rugby à XV", "Rugby à XIII", "Football américain",
-                "Football australien", "Baseball", "Futsal", "Handball",
+                "Baseball", "Futsal", "Handball",
                 "Hockey sur glace", "Volley-ball", "Beach-volley", "Water-polo",
             ),
             "Raquette et précision" to listOf(
                 "Tennis", "Tennis de table", "Badminton", "Padel", "Squash", "Golf",
-                "Fléchettes / Darts",
             ),
             "Endurance et hiver" to listOf(
                 "Cyclisme", "Biathlon", "Ski alpin", "Ski de fond", "Saut à ski", "Athlétisme",
@@ -53,12 +63,12 @@ class AnalysisRepository(
                 "King of Glory / KoG",
             ),
             "Autres" to listOf(
-                "Cricket", "Curling", "Courses hippiques", "Sports virtuels", "Paris spéciaux",
+                "Curling", "Courses hippiques", "Sports virtuels", "Paris spéciaux",
                 "Événements spéciaux",
             ),
         )
         return groups.flatMap { (category, sports) ->
-            sports.map { SportEntity(name = it, category = category) }
+            sports.filterNot(RemovedSports::isRemovedSportName).map { SportEntity(name = it, category = category) }
         }
     }
 

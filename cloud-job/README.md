@@ -33,6 +33,6 @@ cloud_diagnostics/current.resultsWritten > 0
 cloud_diagnostics/current.eventsBySport.volleyball >= 0
 ```
 
-Le diagnostic contient aussi `eventsBySport` et `resultsBySport` pour vérifier que les sports secondaires comme volley-ball, cyclisme, cricket, handball, hockey sur gazon, fléchettes ou snooker ne sont pas silencieusement oubliés.
+Le diagnostic contient aussi `eventsBySport` et `resultsBySport` pour vérifier que les sports secondaires conservés comme volley-ball, cyclisme, handball, rugby, tennis, baseball, basket, hockey sur glace ou athlétisme ne sont pas silencieusement oubliés.
 
 `sportsWithoutEvents` liste les sports configurés qui n’ont rien remonté pendant cette exécution. C’est utile pour différencier un vrai calendrier vide d’un problème de source publique.

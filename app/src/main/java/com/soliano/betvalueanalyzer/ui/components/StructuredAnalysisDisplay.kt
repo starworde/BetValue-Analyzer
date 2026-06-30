@@ -1364,13 +1364,13 @@ private fun globalMarketRequirementLines(
         "handball" -> resultScoreTotal("victoire, nul", "score final probable", "total buts") +
             listOf(req("Handicap / gardiens", "handicap, buts par équipe, arrêts gardien", coveredBy("handicap", "gardien", "arrets"), "Handicap/gardien déjà surveillé.", "À recouper avec efficacité au tir et arrêts gardien."))
 
-        "hockey", "field_hockey" -> resultScoreTotal("victoire temps réglementaire / prolongation comprise", "score final probable", "total buts") +
+        "hockey" -> resultScoreTotal("victoire temps réglementaire / prolongation comprise", "score final probable", "total buts") +
             listOf(req("Tirs / gardien", "tirs, but joueur, assistance, arrêts gardien", coveredBy("tir", "tirs", "gardien", "arrets", "assistance"), "Tirs/gardien déjà surveillés.", "À recouper avec gardien confirmé, power play et fatigue."))
 
         "baseball" -> resultScoreTotal("victoire", "score final probable", "total runs") +
             listOf(req("Actions baseball", "home run, hit, RBI, strikeouts, extra innings", coveredBy("home run", "hit", "rbi", "strikeout", "extra innings"), "Actions baseball déjà surveillées.", "À recouper avec lanceur partant, bullpen, météo et stade."))
 
-        "football", "australian_football" -> resultScoreTotal("victoire", "score final probable", "total points") +
+        "football" -> resultScoreTotal("victoire", "score final probable", "total points") +
             listOf(req("Actions football", "touchdown, yards, interception, sack", coveredBy("touchdown", "yards", "interception", "sack"), "Actions spécifiques déjà surveillées.", "À recouper avec QB, météo, blessures et turnovers."))
 
         "volleyball" -> resultScoreTotal("victoire", "score en sets", "total points") +
@@ -1401,9 +1401,6 @@ private fun globalMarketRequirementLines(
             req("Classement golf", "victoire, top 5, top 10, top 20", coveredBy("victoire", "top 5", "top 10", "top 20"), "Les marchés classement golf sont déjà surveillés.", "À recouper avec field, parcours et forme récente."),
             req("Cut / score", "passe le cut, birdies, bogeys, score sous le par", coveredBy("cut", "birdie", "bogey", "par"), "Cut/score déjà surveillé.", "À recouper avec strokes gained, putting et météo."),
         )
-
-        "snooker", "darts" -> resultScoreTotal("victoire", "score probable", "total frames ou legs") +
-            listOf(req("Performance table", "century, break élevé, 180, checkout, match serré", coveredBy("century", "break", "180", "checkout", "serre"), "Performance table déjà surveillée.", "À recouper avec moyenne, format et gestion des fins de manche."))
 
         else -> resultScoreTotal() + listOf(
             req(
