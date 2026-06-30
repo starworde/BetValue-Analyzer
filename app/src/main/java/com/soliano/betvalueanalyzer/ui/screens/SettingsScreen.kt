@@ -32,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.soliano.betvalueanalyzer.BuildConfig
+import com.soliano.betvalueanalyzer.data.UserSettings
 import com.soliano.betvalueanalyzer.domain.SportIntelligenceCatalog
 import com.soliano.betvalueanalyzer.domain.SportsCatalog
 import com.soliano.betvalueanalyzer.ui.AppUiState
@@ -182,6 +183,10 @@ fun SettingsScreen(
                     t(language, "Dernière erreur", "Last error", "Último error", "Letzter Fehler"),
                     cleanDisplayText(state.settings.lastCloudError).ifBlank { t(language, "Aucune", "None", "Ninguno", "Keine") },
                 )
+                CloudInfoRow(t(language, "Dernier run GitHub", "Last GitHub run", "Último run GitHub", "Letzter GitHub-Lauf"), cloudJobLabel(state.settings, language))
+                CloudInfoRow(t(language, "Cloud résultats écrits", "Cloud results written", "Resultados cloud escritos", "Cloud-Ergebnisse geschrieben"), "${state.settings.cloudJobResultsWritten}/${state.settings.cloudJobResultsPrepared}")
+                CloudInfoRow(t(language, "Cloud événements trouvés", "Cloud events found", "Eventos cloud encontrados", "Cloud-Ereignisse gefunden"), state.settings.cloudJobEventsFound.toString())
+                CloudInfoRow(t(language, "Nettoyage sports retirés", "Removed sports cleanup", "Limpieza deportes retirados", "Entfernte Sportarten bereinigt"), state.settings.cloudJobRemovedSportsDeleted.toString())
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Button(
                         onClick = onForceCloudSync,
@@ -246,6 +251,26 @@ private fun cloudTimeLabel(value: Long, language: String): String =
     if (value > 0L) formatDate(value)
     else t(language, "Jamais", "Never", "Nunca", "Nie")
 
+private fun cloudJobLabel(settings: UserSettings, language: String): String {
+    val status = cleanDisplayText(settings.cloudJobStatus).ifBlank {
+        return t(language, "Jamais", "Never", "Nunca", "Nie")
+    }
+    val time = listOf(settings.cloudJobFinishedEpoch, settings.cloudJobUpdatedEpoch)
+        .firstOrNull { it > 0L }
+        ?.let(::formatDate)
+        .orEmpty()
+    val counters = buildList {
+        if (settings.cloudJobResultsPrepared > 0 || settings.cloudJobResultsWritten > 0) {
+            add("${settings.cloudJobResultsWritten}/${settings.cloudJobResultsPrepared}")
+        }
+        if (settings.cloudJobEventsFound > 0) add("${settings.cloudJobEventsFound} events")
+        if (settings.cloudJobSourceErrors > 0) add("${settings.cloudJobSourceErrors} source errors")
+    }.joinToString(" · ")
+    return listOf(status, time, counters)
+        .filter { it.isNotBlank() }
+        .joinToString(" · ")
+}
+
 @Composable
 private fun SourceHealthSection(state: AppUiState, language: String) {
     val health = sourceHealthRows(state, language)
@@ -292,7 +317,7 @@ internal data class SourceHealthRow(
     val statusColor: androidx.compose.ui.graphics.Color,
 )
 
-private fun sourceHealthRows(state: AppUiState, language: String): List<SourceHealthRow> {
+internal fun sourceHealthRows(state: AppUiState, language: String): List<SourceHealthRow> {
     val sourceNames = (
         state.upcomingEvents.map { it.sourceName } +
             state.predictions.map { it.sourceName } +
@@ -320,7 +345,29 @@ private fun sourceHealthRows(state: AppUiState, language: String): List<SourceHe
         keyword = "ecriture",
         language = language,
     )
+    val githubActions = githubActionsStatus(state.settings, language)
+    val firestoreJobError = listOf(
+        state.settings.cloudJobFirestoreError,
+        state.settings.cloudJobFirestoreCleanupError,
+        state.settings.cloudJobError,
+    )
+        .map(::cleanDisplayText)
+        .firstOrNull { it.isNotBlank() }
+        .orEmpty()
     return listOf(
+        SourceHealthRow(
+            "GitHub Actions",
+            githubActions.first,
+            githubActions.second,
+        ),
+        SourceHealthRow(
+            "Firestore quota/nettoyage",
+            firestoreJobError.ifBlank {
+                if (state.settings.cloudJobStatus.isNotBlank()) "OK"
+                else t(language, "Pas encore confirmé", "Not confirmed yet", "Aún no confirmado", "Noch nicht bestätigt")
+            },
+            if (firestoreJobError.isBlank() && state.settings.cloudJobStatus.isNotBlank()) Mint else if (firestoreJobError.isBlank()) TextSecondary else Danger,
+        ),
         SourceHealthRow(
             t(language, "Sources actives", "Active sources", "Fuentes activas", "Aktive Quellen"),
             if (sourceNames.isEmpty()) t(language, "Aucune source chargée", "No source loaded", "Ninguna fuente cargada", "Keine Quelle geladen")
@@ -363,7 +410,7 @@ private fun sourceHealthRows(state: AppUiState, language: String): List<SourceHe
             cloudError.ifBlank { t(language, "Aucune", "None", "Ninguna", "Keine") },
             if (cloudError.isBlank()) Mint else Danger,
         ),
-    )
+    ).distinctBy { it.label }
 }
 
 private fun sourceHealthSportRows(state: AppUiState): List<SourceHealthRow> =
@@ -477,6 +524,33 @@ private fun firestoreStatus(
     } else {
         t(language, "Pas encore confirmé", "Not confirmed yet", "Aún no confirmado", "Noch nicht bestätigt") to TextSecondary
     }
+}
+
+private fun githubActionsStatus(settings: UserSettings, language: String): Pair<String, androidx.compose.ui.graphics.Color> {
+    val status = cleanDisplayText(settings.cloudJobStatus)
+    if (status.isBlank()) {
+        return t(language, "Pas encore confirmé", "Not confirmed yet", "Aún no confirmado", "Noch nicht bestätigt") to TextSecondary
+    }
+    val normalized = status.lowercase(Locale.FRANCE)
+    val color = when {
+        "success" in normalized -> Mint
+        "partial" in normalized || "quota" in normalized -> Blue
+        "error" in normalized || "fail" in normalized -> Danger
+        else -> TextSecondary
+    }
+    val finishedAt = listOf(settings.cloudJobFinishedEpoch, settings.cloudJobUpdatedEpoch)
+        .firstOrNull { it > 0L }
+        ?.let(::formatDate)
+        .orEmpty()
+    val counters = buildList {
+        add("${settings.cloudJobResultsWritten}/${settings.cloudJobResultsPrepared} écrits")
+        if (settings.cloudJobEventsFound > 0) add("${settings.cloudJobEventsFound} événements")
+        if (settings.cloudJobSourcesChecked > 0) add("${settings.cloudJobSourcesChecked} sources")
+        if (settings.cloudJobSourceErrors > 0) add("${settings.cloudJobSourceErrors} erreurs source")
+    }.joinToString(" · ")
+    return listOf(status, finishedAt, counters)
+        .filter { it.isNotBlank() }
+        .joinToString(" · ") to color
 }
 
 @Composable

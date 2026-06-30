@@ -66,7 +66,7 @@ abstract class BetValueDatabase : RoomDatabase() {
         private val MIGRATION_2_3 = object : Migration(2, 3) {
             override fun migrate(database: SupportSQLiteDatabase) {
                 database.execSQL(
-                    "ALTER TABLE predictions ADD COLUMN sourceName TEXT NOT NULL DEFAULT 'Betclic'"
+                    "ALTER TABLE predictions ADD COLUMN sourceName TEXT NOT NULL DEFAULT 'Source publique'"
                 )
                 database.execSQL("DELETE FROM predictions")
             }

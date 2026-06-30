@@ -35,6 +35,8 @@ class AnalysisRepository(
                 "Fléchettes / Darts",
                 "Darts",
                 "Cricket",
+                "Paris spéciaux",
+                "Sports virtuels",
             )
         )
         analysisDao.deleteDemoRecords()
@@ -63,7 +65,7 @@ class AnalysisRepository(
                 "King of Glory / KoG",
             ),
             "Autres" to listOf(
-                "Curling", "Courses hippiques", "Sports virtuels", "Paris spéciaux",
+                "Curling", "Courses hippiques",
                 "Événements spéciaux",
             ),
         )

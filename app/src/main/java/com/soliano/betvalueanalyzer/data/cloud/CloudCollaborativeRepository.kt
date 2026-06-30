@@ -53,6 +53,9 @@ class CloudCollaborativeRepository(
             }
 
             runCatching { remoteDataSource.deleteSports(RemovedSports.keys) }
+            val jobDiagnostic = runCatching { remoteDataSource.fetchDiagnostic() }
+                .getOrNull()
+                ?: CloudJobDiagnostic()
             val deviceId = if (publishLocal || fetchCloud) remoteDataSource.anonymousDeviceId() else ""
             val localPredictions = predictionDao.getUpcoming(now)
                 .filter { RemovedSports.isAllowedSportKey(it.sportKey) }
@@ -142,6 +145,7 @@ class CloudCollaborativeRepository(
                     fetchCloud && lastRead == now -> ""
                     else -> uploadErrorMessage
                 },
+                jobDiagnostic = jobDiagnostic,
             ).also { preferencesRepository.updateCloudMetadata(it) }
         }.getOrElse { error ->
             val report = CloudSyncReport(
@@ -160,6 +164,11 @@ class CloudCollaborativeRepository(
         val settings = preferencesRepository.settings.first()
         val localCount = runCatching { predictionDao.getUpcoming(now).size }.getOrDefault(0)
         val firebaseAvailable = runCatching { remoteDataSource.isAvailable() }.getOrDefault(false)
+        val jobDiagnostic = if (firebaseAvailable) {
+            runCatching { remoteDataSource.fetchDiagnostic() }.getOrNull() ?: CloudJobDiagnostic()
+        } else {
+            CloudJobDiagnostic()
+        }
         val file = File(context.cacheDir, "cloud_collaboratif_diagnostic.txt")
         val text = buildString {
             appendLine("BetValue Analyzer - diagnostic cloud collaboratif")
@@ -173,6 +182,18 @@ class CloudCollaborativeRepository(
             appendLine("lastCloudRead=${settings.lastCloudReadEpoch}")
             appendLine("lastCloudError=${settings.lastCloudError}")
             appendLine("lastCloudFetchedCount=${settings.lastCloudFetchedCount}")
+            appendLine("githubActionStatus=${jobDiagnostic.status}")
+            appendLine("githubActionStartedAt=${jobDiagnostic.startedAt}")
+            appendLine("githubActionFinishedAt=${jobDiagnostic.finishedAt}")
+            appendLine("githubActionEventsFound=${jobDiagnostic.eventsFound}")
+            appendLine("githubActionResultsPrepared=${jobDiagnostic.resultsPrepared}")
+            appendLine("githubActionResultsWritten=${jobDiagnostic.resultsWritten}")
+            appendLine("githubActionRemovedSportsDeleted=${jobDiagnostic.removedSportDocumentsDeleted}")
+            appendLine("githubActionSourcesChecked=${jobDiagnostic.sourcesChecked}")
+            appendLine("githubActionSourceErrors=${jobDiagnostic.sourceErrorsCount}")
+            appendLine("githubActionFirestoreError=${jobDiagnostic.firestoreError}")
+            appendLine("githubActionFirestoreCleanupError=${jobDiagnostic.firestoreCleanupError}")
+            appendLine("githubActionError=${jobDiagnostic.error}")
             appendLine("privacy=aucun favori, historique privé, log sensible ou donnée personnelle n'est envoyé")
         }
         runCatching { file.writeText(text) }
@@ -185,6 +206,7 @@ class CloudCollaborativeRepository(
             lastReadEpoch = settings.lastCloudReadEpoch,
             errorMessage = settings.lastCloudError,
             diagnosticPath = file.absolutePath,
+            jobDiagnostic = jobDiagnostic,
         )
         preferencesRepository.updateCloudMetadata(report)
         return report
@@ -197,6 +219,7 @@ interface CloudCollaborativeRemoteDataSource {
     fun publish(results: List<CloudSharedResult>): Int
     fun publishCalendarEvents(events: List<CloudSharedCalendarEvent>): Int
     fun fetchRecent(now: Long, limit: Long): List<CloudSharedResult>
+    fun fetchDiagnostic(): CloudJobDiagnostic?
     fun fetchKnownDocumentIds(now: Long, limit: Long): Set<String>
     fun deleteSports(sports: Set<String>): Int
 }
@@ -312,6 +335,18 @@ class FirebaseCloudCollaborativeRemoteDataSource(
         return snapshot.documents.mapNotNull { document ->
             cloudSharedResultFromMap(document.data.orEmpty())
         }
+    }
+
+    override fun fetchDiagnostic(): CloudJobDiagnostic? {
+        val firestore = firestoreOrNull() ?: return null
+        return runCatching {
+            val document = Tasks.await(
+                firestore.collection("cloud_diagnostics").document("current").get(),
+                8,
+                TimeUnit.SECONDS,
+            )
+            document.data?.let(::cloudJobDiagnosticFromMap)
+        }.getOrNull()
     }
 
     override fun fetchKnownDocumentIds(now: Long, limit: Long): Set<String> {

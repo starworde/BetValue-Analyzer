@@ -9,6 +9,34 @@ import org.junit.Test
 
 class SettingsScreenDiagnosticsTest {
     @Test
+    fun `source health exposes github action and firestore diagnostic`() {
+        val state = AppUiState(
+            settings = UserSettings(
+                cloudCollaborativeEnabled = true,
+                lastSyncEpoch = 1_800_000_000_000L,
+                lastCloudReadEpoch = 1_800_000_000_000L,
+                lastCloudUploadEpoch = 1_800_000_000_000L,
+                cloudJobStatus = "success",
+                cloudJobFinishedEpoch = 1_800_000_000_000L,
+                cloudJobEventsFound = 2_148,
+                cloudJobResultsPrepared = 900,
+                cloudJobResultsWritten = 860,
+                cloudJobRemovedSportsDeleted = 12,
+                cloudJobSourcesChecked = 18,
+            ),
+        )
+
+        val rows = sourceHealthRows(state, "fr")
+        val github = rows.single { it.label == "GitHub Actions" }.value
+        val firestoreCleanup = rows.single { it.label == "Firestore quota/nettoyage" }.value
+
+        assertTrue(github.contains("success", ignoreCase = true))
+        assertTrue(github.contains("860/900"))
+        assertTrue(github.contains("2148") || github.contains("2 148"))
+        assertTrue(firestoreCleanup.contains("OK"))
+    }
+
+    @Test
     fun `sport diagnostics expose source update counts stats and confidence`() {
         val state = AppUiState(
             upcomingEvents = listOf(

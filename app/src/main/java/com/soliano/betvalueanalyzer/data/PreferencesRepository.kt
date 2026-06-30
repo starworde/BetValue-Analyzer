@@ -34,6 +34,18 @@ data class UserSettings(
     val lastCloudReadEpoch: Long = 0L,
     val lastCloudError: String = "",
     val lastCloudFetchedCount: Int = 0,
+    val cloudJobStatus: String = "",
+    val cloudJobFinishedEpoch: Long = 0L,
+    val cloudJobUpdatedEpoch: Long = 0L,
+    val cloudJobEventsFound: Int = 0,
+    val cloudJobResultsPrepared: Int = 0,
+    val cloudJobResultsWritten: Int = 0,
+    val cloudJobRemovedSportsDeleted: Int = 0,
+    val cloudJobSourcesChecked: Int = 0,
+    val cloudJobSourceErrors: Int = 0,
+    val cloudJobFirestoreError: String = "",
+    val cloudJobFirestoreCleanupError: String = "",
+    val cloudJobError: String = "",
 )
 
 interface SyncMetadataStore {
@@ -59,6 +71,18 @@ class PreferencesRepository(private val context: Context) : SyncMetadataStore, C
         val lastCloudReadEpoch = longPreferencesKey("last_cloud_read_epoch")
         val lastCloudError = stringPreferencesKey("last_cloud_error")
         val lastCloudFetchedCount = longPreferencesKey("last_cloud_fetched_count")
+        val cloudJobStatus = stringPreferencesKey("cloud_job_status")
+        val cloudJobFinishedEpoch = longPreferencesKey("cloud_job_finished_epoch")
+        val cloudJobUpdatedEpoch = longPreferencesKey("cloud_job_updated_epoch")
+        val cloudJobEventsFound = longPreferencesKey("cloud_job_events_found")
+        val cloudJobResultsPrepared = longPreferencesKey("cloud_job_results_prepared")
+        val cloudJobResultsWritten = longPreferencesKey("cloud_job_results_written")
+        val cloudJobRemovedSportsDeleted = longPreferencesKey("cloud_job_removed_sports_deleted")
+        val cloudJobSourcesChecked = longPreferencesKey("cloud_job_sources_checked")
+        val cloudJobSourceErrors = longPreferencesKey("cloud_job_source_errors")
+        val cloudJobFirestoreError = stringPreferencesKey("cloud_job_firestore_error")
+        val cloudJobFirestoreCleanupError = stringPreferencesKey("cloud_job_firestore_cleanup_error")
+        val cloudJobError = stringPreferencesKey("cloud_job_error")
     }
 
     val settings: Flow<UserSettings> = context.dataStore.data
@@ -86,6 +110,18 @@ class PreferencesRepository(private val context: Context) : SyncMetadataStore, C
                 lastCloudReadEpoch = preferences[Keys.lastCloudReadEpoch] ?: 0L,
                 lastCloudError = preferences[Keys.lastCloudError].orEmpty(),
                 lastCloudFetchedCount = (preferences[Keys.lastCloudFetchedCount] ?: 0L).toInt(),
+                cloudJobStatus = preferences[Keys.cloudJobStatus].orEmpty(),
+                cloudJobFinishedEpoch = preferences[Keys.cloudJobFinishedEpoch] ?: 0L,
+                cloudJobUpdatedEpoch = preferences[Keys.cloudJobUpdatedEpoch] ?: 0L,
+                cloudJobEventsFound = (preferences[Keys.cloudJobEventsFound] ?: 0L).toInt(),
+                cloudJobResultsPrepared = (preferences[Keys.cloudJobResultsPrepared] ?: 0L).toInt(),
+                cloudJobResultsWritten = (preferences[Keys.cloudJobResultsWritten] ?: 0L).toInt(),
+                cloudJobRemovedSportsDeleted = (preferences[Keys.cloudJobRemovedSportsDeleted] ?: 0L).toInt(),
+                cloudJobSourcesChecked = (preferences[Keys.cloudJobSourcesChecked] ?: 0L).toInt(),
+                cloudJobSourceErrors = (preferences[Keys.cloudJobSourceErrors] ?: 0L).toInt(),
+                cloudJobFirestoreError = preferences[Keys.cloudJobFirestoreError].orEmpty(),
+                cloudJobFirestoreCleanupError = preferences[Keys.cloudJobFirestoreCleanupError].orEmpty(),
+                cloudJobError = preferences[Keys.cloudJobError].orEmpty(),
             )
         }
 
@@ -111,6 +147,19 @@ class PreferencesRepository(private val context: Context) : SyncMetadataStore, C
             if (report.lastReadEpoch > 0L) preferences[Keys.lastCloudReadEpoch] = report.lastReadEpoch
             preferences[Keys.lastCloudFetchedCount] = report.fetchedCount.toLong()
             preferences[Keys.lastCloudError] = report.errorMessage
+            val diagnostic = report.jobDiagnostic
+            preferences[Keys.cloudJobStatus] = diagnostic.status
+            preferences[Keys.cloudJobFinishedEpoch] = diagnostic.finishedAt
+            preferences[Keys.cloudJobUpdatedEpoch] = diagnostic.updatedAt
+            preferences[Keys.cloudJobEventsFound] = diagnostic.eventsFound.toLong()
+            preferences[Keys.cloudJobResultsPrepared] = diagnostic.resultsPrepared.toLong()
+            preferences[Keys.cloudJobResultsWritten] = diagnostic.resultsWritten.toLong()
+            preferences[Keys.cloudJobRemovedSportsDeleted] = diagnostic.removedSportDocumentsDeleted.toLong()
+            preferences[Keys.cloudJobSourcesChecked] = diagnostic.sourcesChecked.toLong()
+            preferences[Keys.cloudJobSourceErrors] = diagnostic.sourceErrorsCount.toLong()
+            preferences[Keys.cloudJobFirestoreError] = diagnostic.firestoreError
+            preferences[Keys.cloudJobFirestoreCleanupError] = diagnostic.firestoreCleanupError
+            preferences[Keys.cloudJobError] = diagnostic.error
         }
     }
 

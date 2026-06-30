@@ -83,6 +83,22 @@ data class CloudMergeResult(
     val rejectedCloudCount: Int,
 )
 
+data class CloudJobDiagnostic(
+    val status: String = "",
+    val startedAt: Long = 0L,
+    val finishedAt: Long = 0L,
+    val updatedAt: Long = 0L,
+    val eventsFound: Int = 0,
+    val resultsPrepared: Int = 0,
+    val resultsWritten: Int = 0,
+    val removedSportDocumentsDeleted: Int = 0,
+    val sourcesChecked: Int = 0,
+    val sourceErrorsCount: Int = 0,
+    val firestoreError: String = "",
+    val firestoreCleanupError: String = "",
+    val error: String = "",
+)
+
 data class CloudSyncReport(
     val enabled: Boolean,
     val firebaseAvailable: Boolean,
@@ -96,6 +112,7 @@ data class CloudSyncReport(
     val lastReadEpoch: Long = 0L,
     val errorMessage: String = "",
     val diagnosticPath: String = "",
+    val jobDiagnostic: CloudJobDiagnostic = CloudJobDiagnostic(),
 )
 
 fun PredictionEntity.toCloudSharedResult(
@@ -498,6 +515,22 @@ fun cloudSharedResultFromMap(map: Map<String, Any?>): CloudSharedResult? = runCa
         sourceAgreement = map.intValue("sourceAgreement"),
     )
 }.getOrNull()
+
+fun cloudJobDiagnosticFromMap(map: Map<String, Any?>): CloudJobDiagnostic = CloudJobDiagnostic(
+    status = map.stringValue("status"),
+    startedAt = map.longValue("startedAt"),
+    finishedAt = map.longValue("finishedAt"),
+    updatedAt = map.longValue("updatedAt"),
+    eventsFound = map.intValue("eventsFound"),
+    resultsPrepared = map.intValue("resultsPrepared"),
+    resultsWritten = map.intValue("resultsWritten"),
+    removedSportDocumentsDeleted = map.intValue("removedSportDocumentsDeleted"),
+    sourcesChecked = map.intValue("sourcesChecked"),
+    sourceErrorsCount = (map["sourceErrors"] as? List<*>)?.size ?: map.intValue("sourceErrorsCount"),
+    firestoreError = map.stringValue("firestoreError"),
+    firestoreCleanupError = map.stringValue("firestoreCleanupError"),
+    error = map.stringValue("error"),
+)
 
 fun cloudDocumentIdFor(eventId: String): String =
     eventId.trim()
