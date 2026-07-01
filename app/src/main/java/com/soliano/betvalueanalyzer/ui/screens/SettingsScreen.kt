@@ -64,6 +64,7 @@ fun SettingsScreen(
     onExportCloudDiagnostic: () -> Unit,
 ) {
     val syncing = state.syncStatus == SyncStatus.Syncing
+    val cloudError = visibleCloudError(state.settings)
 
     Column(
         modifier = Modifier
@@ -182,7 +183,7 @@ fun SettingsScreen(
                 CloudInfoRow(t(language, "Résultats récupérés", "Fetched results", "Resultados recuperados", "Geladene Ergebnisse"), state.settings.lastCloudFetchedCount.toString())
                 CloudInfoRow(
                     t(language, "Dernière erreur", "Last error", "Último error", "Letzter Fehler"),
-                    cleanDisplayText(state.settings.lastCloudError).ifBlank { t(language, "Aucune", "None", "Ninguno", "Keine") },
+                    cloudError.ifBlank { t(language, "Aucune", "None", "Ninguno", "Keine") },
                 )
                 CloudInfoRow(t(language, "Dernier run GitHub", "Last GitHub run", "Último run GitHub", "Letzter GitHub-Lauf"), cloudJobLabel(state.settings, language))
                 CloudInfoRow(t(language, "Cloud résultats écrits", "Cloud results written", "Resultados cloud escritos", "Cloud-Ergebnisse geschrieben"), "${state.settings.cloudJobResultsWritten}/${state.settings.cloudJobResultsPrepared}")
@@ -331,7 +332,7 @@ internal fun sourceHealthRows(state: AppUiState, language: String): List<SourceH
     val emptyMajorSports = listOf("Football", "Rugby", "Tennis", "Volley-ball", "Basketball", "Cyclisme", "Formule 1", "Baseball", "Hockey")
         .filter { sport -> eventsBySport.keys.none { it.equals(sport, ignoreCase = true) } }
     val syncError = (state.syncStatus as? SyncStatus.Error)?.message.orEmpty()
-    val cloudError = cleanDisplayText(state.settings.lastCloudError)
+    val cloudError = visibleCloudError(state.settings)
     val firestoreRead = firestoreStatus(
         enabled = state.settings.cloudCollaborativeEnabled,
         successEpoch = state.settings.lastCloudReadEpoch,
@@ -352,7 +353,7 @@ internal fun sourceHealthRows(state: AppUiState, language: String): List<SourceH
         state.settings.cloudJobFirestoreCleanupError,
         state.settings.cloudJobError,
     )
-        .map(::cleanDisplayText)
+        .map(::sanitizeDiagnosticMessage)
         .firstOrNull { it.isNotBlank() }
         .orEmpty()
     return listOf(
@@ -381,7 +382,7 @@ internal fun sourceHealthRows(state: AppUiState, language: String): List<SourceH
         ),
         SourceHealthRow(
             t(language, "Sources cloud en erreur", "Cloud source errors", "Errores de fuentes cloud", "Cloud-Quellenfehler"),
-            cleanDisplayText(state.settings.cloudJobSourceErrorDetails).ifBlank {
+            sanitizeDiagnosticMessage(state.settings.cloudJobSourceErrorDetails).ifBlank {
                 if (state.settings.cloudJobSourceErrors > 0) "${state.settings.cloudJobSourceErrors} erreur(s)"
                 else t(language, "Aucune erreur source", "No source error", "Sin error de fuente", "Kein Quellenfehler")
             },
@@ -448,6 +449,56 @@ internal fun sourceHealthRows(state: AppUiState, language: String): List<SourceH
     ).distinctBy { it.label }
 }
 
+private fun visibleCloudError(settings: UserSettings): String {
+    val error = sanitizeDiagnosticMessage(settings.lastCloudError)
+    if (error.isBlank()) return ""
+    val hasCloudSuccess = settings.cloudJobStatus.equals("success", ignoreCase = true) ||
+        settings.lastCloudReadEpoch > 0L ||
+        settings.lastCloudUploadEpoch > 0L
+    return if (hasCloudSuccess && isStaleCloudErrorCandidate(error)) "" else error
+}
+
+private fun sanitizeDiagnosticMessage(value: String): String {
+    val cleaned = cleanDisplayText(value)
+        .replace("\n", " · ")
+        .replace(Regex("\\s+"), " ")
+        .trim()
+    if (cleaned.isBlank()) return ""
+    val normalized = cleaned.lowercase(Locale.FRANCE)
+    val prefix = cleaned.substringBefore(':')
+        .trim()
+        .takeIf { it.length in 3..60 && it != cleaned && !it.contains("http", ignoreCase = true) }
+        ?.let { "$it : " }
+        .orEmpty()
+    val message = when {
+        "429" in normalized || "too many requests" in normalized ->
+            "${prefix}Limite temporaire d’une source publique (429). Nouvelle tentative automatique au prochain passage."
+        "resource_exhausted" in normalized || "quota" in normalized ->
+            "${prefix}Quota temporaire atteint. Cache conservé, nouvelle tentative automatique."
+        "503" in normalized || "temporarily unavailable" in normalized || "temporairement indisponible" in normalized ->
+            "${prefix}Source publique temporairement indisponible. Cache conservé."
+        "firestore" in normalized && ("refuse" in normalized || "permission" in normalized || "denied" in normalized) ->
+            "${prefix}Accès Firestore refusé. À vérifier seulement si l’erreur revient après une synchro."
+        else -> cleaned
+    }
+    return message.take(220)
+}
+
+private fun isStaleCloudErrorCandidate(error: String): Boolean {
+    val normalized = error.lowercase(Locale.FRANCE)
+    return listOf(
+        "temporaire",
+        "indisponible",
+        "firestore",
+        "refus",
+        "permission",
+        "quota",
+        "429",
+        "503",
+        "cache conserv",
+    ).any { it in normalized }
+}
+
 private fun cloudSourcesRespondingLabel(settings: UserSettings, language: String): String {
     val summary = cleanDisplayText(settings.cloudJobEventsBySportSummary)
     if (summary.isNotBlank()) return summary
@@ -483,11 +534,11 @@ private fun aiFusionLabel(settings: UserSettings): String = listOf(
     "${settings.aiResponded}/${settings.aiCalled.coerceAtLeast(settings.aiResponded)} réponse(s)",
     "${settings.aiFusionCount} fusion(s)",
     "${settings.aiCacheHits} cache",
-    "${settings.aiFallbackUsed} pré-analyse(s) locale(s)",
+    "${settings.aiFallbackUsed} attente(s) cloud non affichée(s)",
 ).joinToString(" · ")
 
 private fun aiErrorsLabel(settings: UserSettings, language: String): String {
-    val errors = cleanDisplayText(settings.aiErrors)
+    val errors = sanitizeDiagnosticMessage(settings.aiErrors)
     val quota = if (settings.aiQuotaReached) "Quota gratuit atteint" else ""
     return listOf(errors, quota)
         .filter { it.isNotBlank() }

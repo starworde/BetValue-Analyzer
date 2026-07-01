@@ -4,6 +4,7 @@ import com.soliano.betvalueanalyzer.data.UserSettings
 import com.soliano.betvalueanalyzer.data.local.PredictionEntity
 import com.soliano.betvalueanalyzer.data.local.UpcomingEventEntity
 import com.soliano.betvalueanalyzer.ui.AppUiState
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -27,7 +28,8 @@ class SettingsScreenDiagnosticsTest {
                 cloudJobRemovedSportsDeleted = 12,
                 cloudJobSourcesChecked = 18,
                 cloudJobSourceErrors = 1,
-                cloudJobSourceErrorDetails = "UCI WorldTour : HTTP 503",
+                cloudJobSourceErrorDetails = "Cup next : HTTP 429 Too Many Requests",
+                lastCloudError = "Cloud temporairement indisponible. L'application continue avec les donnees locales.",
                 aiFreeEnabled = setOf("Gemini free tier", "Groq free tier"),
                 aiPaidDisabled = setOf("OpenAI", "Claude / Anthropic"),
                 aiMode = "double",
@@ -48,6 +50,7 @@ class SettingsScreenDiagnosticsTest {
         val aiFree = rows.single { it.label == "IA cloud active" }.value
         val aiFusion = rows.single { it.label == "Fusion IA" }.value
         val paidDisabled = rows.single { it.label == "IA payantes" }.value
+        val lastCloudError = rows.single { it.label == "Dernière erreur cloud" }.value
 
         assertTrue(github.contains("success", ignoreCase = true))
         assertTrue(github.contains("860/900"))
@@ -55,13 +58,17 @@ class SettingsScreenDiagnosticsTest {
         assertTrue(firestoreCleanup.contains("OK"))
         assertTrue(responding.contains("volleyball"))
         assertTrue(empty.contains("boxing"))
-        assertTrue(errors.contains("UCI WorldTour"))
+        assertTrue(errors.contains("Cup next"))
+        assertTrue(errors.contains("Limite temporaire"))
+        assertFalse(errors.contains("Too Many Requests"))
         assertTrue(aiFree.contains("Gemini"))
         assertTrue(aiFree.contains("Groq"))
         assertTrue(aiFusion.contains("12/14"))
         assertTrue(aiFusion.contains("6 fusion"))
         assertTrue(aiFusion.contains("9 cache"))
         assertTrue(paidDisabled.contains("OpenAI"))
+        assertTrue(lastCloudError.contains("Aucune"))
+        assertFalse(lastCloudError.contains("temporairement", ignoreCase = true))
     }
 
     @Test

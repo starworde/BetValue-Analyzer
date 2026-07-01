@@ -497,8 +497,9 @@ function renderAiBlock(result) {
   const diagnostic = safeJson(result.aiDiagnostic, null);
   const providerCount = Number(analysis.providerCount || 0);
   const source = cleanText(analysis.source || "");
-  const isCloudAi = providerCount > 0 && !/fallback|local-preanalysis/i.test(source);
-  const title = isCloudAi ? "Analyse IA approfondie" : "Pré-analyse locale";
+  const isCloudAi = providerCount > 0 && !/fallback|local-preanalysis/i.test(source) && !looksLikeLegacyLocalAi(analysis);
+  if (!isCloudAi) return renderPendingAiBlock(result);
+  const title = "Analyse IA approfondie";
   const pairName = displayMatchName(result);
   const sections = [
     ["📌 Lecture rapide", analysis.lectureRapide],
@@ -541,6 +542,45 @@ function renderAiBlock(result) {
       }
     </div>
   `;
+}
+
+function renderPendingAiBlock(result) {
+  return `
+    <div class="info-block ai-block">
+      <h3>Analyse IA cloud</h3>
+      <p class="line"><strong>IA cloud en attente</strong></p>
+      <p class="line">La vraie analyse approfondie n’est pas encore synchronisée pour ${escapeHtml(displayMatchName(result))}.</p>
+      <p class="line">Les statistiques, infos joueurs et autres pronostics restent disponibles plus bas.</p>
+    </div>
+  `;
+}
+
+function looksLikeLegacyLocalAi(analysis) {
+  const providerText = normalizeSearch([
+    analysis.source,
+    analysis.modeleUtilise,
+  ].filter(Boolean).join(" "));
+  if (providerText.includes("local") || providerText.includes("fallback") || providerText.includes("pre analyse") || providerText.includes("sans cle")) return true;
+  const body = normalizeSearch([
+    analysis.titreAnalyse,
+    analysis.lectureRapide,
+    analysis.avantageFavori,
+    analysis.dangerOutsider,
+    analysis.matchUpCle,
+    analysis.pointsQuiComptent,
+    analysis.scenarioPrincipal,
+    analysis.scenarioAlternatif,
+    analysis.confianceTexte,
+  ].filter(Boolean).join(" "));
+  return [
+    "conclusion provisoire",
+    "ce que ca change",
+    "pas juste repris du tableau",
+    "signal present dans les donnees",
+    "doit etre lu comme une conclusion",
+    "lignes de donnees relues localement",
+    "analyse correcte local",
+  ].some((needle) => body.includes(needle));
 }
 
 function cloudParticipantLabel(result) {
@@ -589,7 +629,10 @@ function isUsefulAiLine(text) {
     !clean.includes("architecture") &&
     !clean.includes("fallback local") &&
     !clean.includes("analyse locale sans cle") &&
-    !clean.includes("simple pourcentage");
+    !clean.includes("simple pourcentage") &&
+    !clean.includes("ce que ca change") &&
+    !clean.includes("signal present dans les donnees") &&
+    !clean.includes("pas juste repris du tableau");
 }
 
 function renderTextBlock(title, text) {

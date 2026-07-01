@@ -52,8 +52,6 @@ import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.soliano.betvalueanalyzer.data.local.PredictionEntity
-import com.soliano.betvalueanalyzer.domain.LocalAiReading
-import com.soliano.betvalueanalyzer.domain.LocalAnalysisAssistant
 import com.soliano.betvalueanalyzer.ui.t
 import com.soliano.betvalueanalyzer.ui.components.StructuredActorBlock
 import com.soliano.betvalueanalyzer.ui.components.StructuredActorStatRequirementBlock
@@ -102,7 +100,6 @@ fun PredictionDetailScreen(
     onBack: () -> Unit,
 ) {
     val accent = categoryColor(prediction.category)
-    val aiReading = remember(prediction) { LocalAnalysisAssistant.explain(prediction) }
     val cloudAiReading = remember(prediction.aiAnalysis, prediction.aiDiagnostic) { cloudAiReadingOrNull(prediction) }
     var dossier by remember(prediction.id) { mutableStateOf(StructuredAnalysisCache.get(prediction)) }
     LaunchedEffect(
@@ -192,11 +189,11 @@ fun PredictionDetailScreen(
         }
 
         item {
-            PredictionSection(if (cloudAiReading != null) "Analyse IA approfondie" else "Pré-analyse locale", Icons.Outlined.Info, accent) {
+            PredictionSection(if (cloudAiReading != null) "Analyse IA approfondie" else "Analyse IA cloud", Icons.Outlined.Info, accent) {
                 if (cloudAiReading != null) {
                     CloudAiReadingCard(cloudAiReading, accent)
                 } else {
-                    LocalAiReadingCard(aiReading, accent)
+                    CloudAiPendingCard(prediction, accent)
                 }
             }
         }
@@ -348,6 +345,7 @@ private fun cloudAiReadingOrNull(prediction: PredictionEntity): CloudAiReading? 
             diagnostic?.textListField("iaRepondues")?.joinToString(" + ").orEmpty()
         }
         .ifBlank { "backend sécurisé · aucune clé dans l’APK" }
+    if (looksLikeLegacyLocalCloudAnalysis(analysis, providerLabel)) return null
 
     val sections = buildList {
         addCloudSection(
@@ -401,6 +399,38 @@ private fun cloudAiReadingOrNull(prediction: PredictionEntity): CloudAiReading? 
         sections = sections.take(8),
         diagnosticLines = cloudAiDiagnosticLines(analysis, diagnostic),
     )
+}
+
+private fun looksLikeLegacyLocalCloudAnalysis(analysis: JsonObject, providerLabel: String): Boolean {
+    val sourceText = listOf(
+        analysis.textField("source"),
+        analysis.textField("modeleUtilise"),
+        providerLabel,
+    ).joinToString(" ").canonicalNameKey()
+    if ("local" in sourceText || "fallback" in sourceText || "pre analyse" in sourceText || "sans cle" in sourceText) {
+        return true
+    }
+    val body = listOf(
+        analysis.textField("titreAnalyse"),
+        analysis.textField("lectureRapide"),
+        analysis.textField("avantageFavori"),
+        analysis.textField("dangerOutsider"),
+        analysis.textField("matchUpCle"),
+        analysis.textField("pointsQuiComptent"),
+        analysis.textField("scenarioPrincipal"),
+        analysis.textField("scenarioAlternatif"),
+        analysis.textField("confianceTexte"),
+    ).joinToString(" ").canonicalNameKey()
+    val legacySignals = listOf(
+        "conclusion provisoire",
+        "ce que ca change",
+        "pas juste repris du tableau",
+        "signal present dans les donnees",
+        "doit etre lu comme une conclusion",
+        "lignes de donnees relues localement",
+        "analyse correcte local",
+    )
+    return legacySignals.any { it in body }
 }
 
 private fun MutableList<CloudAiSection>.addCloudSection(title: String, vararg rawLines: String) {
@@ -1708,12 +1738,7 @@ private fun CloudAiReadingCard(reading: CloudAiReading, accent: Color) {
 }
 
 @Composable
-private fun LocalAiReadingCard(reading: LocalAiReading, accent: Color) {
-    val analyticalSections = reading.sections
-        .filterNot { it.title == "Résumé rapide" }
-        .filterNot { it.title.contains("Sources & transparence", ignoreCase = true) }
-        .filterNot { it.title.contains("Scénarios calculés", ignoreCase = true) }
-        .take(5)
+private fun CloudAiPendingCard(prediction: PredictionEntity, accent: Color) {
     Surface(shape = RoundedCornerShape(22.dp), color = accent.copy(alpha = 0.10f)) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
             Row(
@@ -1721,28 +1746,36 @@ private fun LocalAiReadingCard(reading: LocalAiReading, accent: Color) {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Tag(reading.status.label, accent)
-                Text("en attente IA cloud", style = MaterialTheme.typography.labelMedium, color = TextSecondary)
+                Tag("IA cloud en attente", accent)
+                Text(
+                    "aucune pré-analyse locale affichée",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = TextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f).padding(start = 10.dp),
+                )
             }
-            Text(cleanDisplayText(reading.summary), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
-            Text(cleanDisplayText(reading.sportVocabulary), style = MaterialTheme.typography.labelMedium, color = TextSecondary)
-
-            analyticalSections.forEach { section ->
-                val color = when {
-                    section.title.contains("nouvelles", ignoreCase = true) -> Amber
-                    section.title.contains("favori", ignoreCase = true) -> Danger
-                    section.title.contains("outsider", ignoreCase = true) -> Mint
-                    section.title.contains("transparence", ignoreCase = true) -> Blue
-                    section.title.contains("conclusion", ignoreCase = true) -> accent
-                    else -> accent
-                }
-                val max = when {
-                    section.title.contains("conclusion", ignoreCase = true) -> 5
-                    else -> 4
-                }
-                LocalAiMiniBlock(section.title, section.lines, color, maxLines = max)
-            }
-            Text(cleanCloudAiDisplayText(reading.conclusion), style = MaterialTheme.typography.bodyMedium, color = accent, fontWeight = FontWeight.Bold)
+            Text(
+                "La vraie analyse IA approfondie n’est pas encore synchronisée pour ce match.",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                "Actualise les données ou rouvre la fiche après la prochaine synchro cloud. Les statistiques, infos joueurs et autres pronostics restent disponibles plus bas.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = TextSecondary,
+            )
+            val source = cleanDisplayText(prediction.sourceName)
+                .ifBlank { cleanDisplayText(prediction.sourceDetails) }
+                .ifBlank { "sources sport en consolidation" }
+            Text(
+                "Source actuelle : $source",
+                style = MaterialTheme.typography.labelMedium,
+                color = accent,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
