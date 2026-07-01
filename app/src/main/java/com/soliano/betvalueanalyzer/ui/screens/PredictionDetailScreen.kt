@@ -48,6 +48,9 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.google.gson.JsonElement
+import com.google.gson.JsonObject
+import com.google.gson.JsonParser
 import com.soliano.betvalueanalyzer.data.local.PredictionEntity
 import com.soliano.betvalueanalyzer.domain.LocalAiReading
 import com.soliano.betvalueanalyzer.domain.LocalAnalysisAssistant
@@ -100,6 +103,7 @@ fun PredictionDetailScreen(
 ) {
     val accent = categoryColor(prediction.category)
     val aiReading = remember(prediction) { LocalAnalysisAssistant.explain(prediction) }
+    val cloudAiReading = remember(prediction.aiAnalysis, prediction.aiDiagnostic) { cloudAiReadingOrNull(prediction) }
     var dossier by remember(prediction.id) { mutableStateOf(StructuredAnalysisCache.get(prediction)) }
     LaunchedEffect(
         prediction.id,
@@ -189,7 +193,11 @@ fun PredictionDetailScreen(
 
         item {
             PredictionSection("Analyse IA approfondie", Icons.Outlined.Info, accent) {
-                LocalAiReadingCard(aiReading, accent)
+                if (cloudAiReading != null) {
+                    CloudAiReadingCard(cloudAiReading, accent)
+                } else {
+                    LocalAiReadingCard(aiReading, accent)
+                }
             }
         }
 
@@ -272,6 +280,20 @@ fun PredictionDetailScreen(
     }
 }
 
+private data class CloudAiReading(
+    val statusLabel: String,
+    val providerLabel: String,
+    val headline: String,
+    val confidenceLabel: String,
+    val sections: List<CloudAiSection>,
+    val diagnosticLines: List<String>,
+)
+
+private data class CloudAiSection(
+    val title: String,
+    val lines: List<String>,
+)
+
 private data class LineupPlayerView(val number: String?, val name: String, val position: String?)
 
 private data class LineupTeamView(
@@ -301,6 +323,178 @@ private data class PressInfoDigest(
 )
 
 private const val NO_RECENT_FACT_LINE = "Aucun fait relevé"
+
+private fun cloudAiReadingOrNull(prediction: PredictionEntity): CloudAiReading? {
+    val analysis = prediction.aiAnalysis.parseCloudJsonObjectOrNull() ?: return null
+    val diagnostic = prediction.aiDiagnostic.parseCloudJsonObjectOrNull()
+
+    val providerCount = analysis.intField("providerCount")
+    val headline = listOf(
+        analysis.textField("lectureRapide"),
+        analysis.textField("scenarioPrincipal"),
+    ).firstOrNull { it.isNotBlank() }.orEmpty()
+    val confidence = analysis.intField("confianceIA")
+    val source = analysis.textField("source")
+    val statusLabel = when {
+        source.contains("fallback", ignoreCase = true) -> "Secours local"
+        providerCount >= 2 -> "Fusion IA"
+        providerCount == 1 -> "IA cloud"
+        else -> "Analyse préparée"
+    }
+    val providerLabel = analysis.textField("modeleUtilise")
+        .ifBlank {
+            diagnostic?.textListField("iaRepondues")?.joinToString(" + ").orEmpty()
+        }
+        .ifBlank { "backend sécurisé · aucune clé dans l’APK" }
+
+    val sections = buildList {
+        addCloudSection(
+            "Lecture globale",
+            analysis.textField("lectureRapide"),
+            analysis.textField("favoriLogique"),
+        )
+        addCloudSection(
+            "Analyse sportive / tactique",
+            analysis.textField("reponseStrategique"),
+            analysis.textField("avantagesExploitables"),
+            analysis.textField("avantagesNeutralises"),
+        )
+        addCloudSection(
+            "Favori fragile / outsider crédible",
+            analysis.textField("dangerAdversaire"),
+            analysis.textField("scenarioAlternatif"),
+        )
+        addCloudSection(
+            "Conclusion argumentée",
+            analysis.textField("scenarioPrincipal"),
+            analysis.textField("pointsASurveiller"),
+            analysis.textField("niveauRisque").takeIf { it.isNotBlank() }?.let { "Niveau de risque : $it" }.orEmpty(),
+        )
+        addCloudSection(
+            "Sources & limites",
+            analysis.textField("sourcesUtilisees").takeIf { it.isNotBlank() }?.let { "Sources utilisées : $it" }.orEmpty(),
+            analysis.textField("donneesManquantes").takeIf { it.isNotBlank() }?.let { "Données manquantes : $it" }.orEmpty(),
+            analysis.textField("erreursOuLimites"),
+        )
+        addCloudSection(
+            "Accord entre IA",
+            analysis.textField("accordEntreIA"),
+            modelResponsesSummary(analysis),
+        )
+    }.filter { it.lines.isNotEmpty() }
+
+    if (headline.isBlank() && sections.isEmpty()) return null
+    return CloudAiReading(
+        statusLabel = statusLabel,
+        providerLabel = providerLabel,
+        headline = headline.ifBlank { "Analyse enrichie disponible." },
+        confidenceLabel = confidence.takeIf { it > 0 }?.let { "$it/100" }.orEmpty(),
+        sections = sections.take(6),
+        diagnosticLines = cloudAiDiagnosticLines(diagnostic),
+    )
+}
+
+private fun MutableList<CloudAiSection>.addCloudSection(title: String, vararg rawLines: String) {
+    val lines = rawLines
+        .flatMap(::splitCloudAiLine)
+        .map(::cleanDisplayText)
+        .filter { it.isNotBlank() && !it.equals("undefined", ignoreCase = true) }
+        .distinctBy { it.canonicalNameKey() }
+        .take(4)
+    if (lines.isNotEmpty()) add(CloudAiSection(title, lines))
+}
+
+private fun splitCloudAiLine(value: String): List<String> {
+    val cleaned = cleanDisplayText(value)
+        .replace(" · ", "\n")
+        .replace(" ; ", "\n")
+        .replace(" - ", " — ")
+    if (cleaned.isBlank()) return emptyList()
+    if (cleaned.length <= 230) return listOf(cleaned)
+    return cleaned
+        .split(Regex("(?<=[.!?])\\s+|\\n+"))
+        .map { it.trim(' ', '•', '-', '·') }
+        .filter { it.isNotBlank() }
+        .ifEmpty { listOf(cleaned.take(260)) }
+}
+
+private fun cloudAiDiagnosticLines(diagnostic: JsonObject?): List<String> {
+    if (diagnostic == null) return emptyList()
+    val active = diagnostic.textListField("iaGratuitesActivees")
+    val called = diagnostic.textListField("iaAppelees")
+    val responded = diagnostic.textListField("iaRepondues")
+    val errors = diagnostic.textListField("iaEnErreur")
+    val paidDisabled = diagnostic.textListField("iaPayantesDesactivees")
+    return buildList {
+        add("IA gratuites actives : ${active.joinToString(", ").ifBlank { "aucune clé gratuite configurée, secours local" }}")
+        if (called.isNotEmpty() || responded.isNotEmpty()) {
+            add("Appel IA : ${responded.size}/${called.size.coerceAtLeast(responded.size)} réponse(s), mode ${diagnostic.textField("mode").ifBlank { "automatique" }}.")
+        }
+        add("Fusion : ${if (diagnostic.booleanField("fusionFaite")) "faite" else "non faite"} · fallback : ${if (diagnostic.booleanField("fallbackUtilise")) "oui" else "non"} · coût : ${diagnostic.textField("coutEstime").ifBlank { "0 €" }}.")
+        if (diagnostic.booleanField("quotaAtteint")) add("Quota gratuit atteint : l’app garde le cache et le secours local.")
+        if (errors.isNotEmpty()) add("Erreurs IA : ${errors.take(2).joinToString(" | ")}")
+        if (paidDisabled.isNotEmpty()) add("IA payantes désactivées : ${paidDisabled.take(3).joinToString(", ")}.")
+        val date = diagnostic.textField("dateGeneration")
+        if (date.isNotBlank()) add("Dernière génération : $date")
+    }.map(::cleanDisplayText).take(6)
+}
+
+private fun modelResponsesSummary(analysis: JsonObject): String {
+    val responses = analysis.get("reponsesModeles")
+        ?.takeIf { it.isJsonArray }
+        ?.asJsonArray
+        ?.toList()
+        .orEmpty()
+    if (responses.isEmpty()) return ""
+    return responses.take(3).joinToString(" · ") { item ->
+        val obj = item.asJsonObjectOrNull()
+        val provider = obj?.textField("provider").orEmpty().ifBlank { "IA" }
+        val confidence = obj?.intField("confianceIA") ?: 0
+        val scenario = obj?.textField("scenarioPrincipal").orEmpty()
+        listOf(provider, confidence.takeIf { it > 0 }?.let { "$it/100" }, scenario.takeIf { it.isNotBlank() })
+            .filterNotNull()
+            .joinToString(" : ")
+    }
+}
+
+private fun String.parseCloudJsonObjectOrNull(): JsonObject? =
+    runCatching { JsonParser.parseString(this).asJsonObjectOrNull() }.getOrNull()
+
+private fun JsonElement.asJsonObjectOrNull(): JsonObject? =
+    takeIf { it.isJsonObject }?.asJsonObject
+
+private fun JsonObject.textField(key: String): String =
+    get(key)?.toCloudText().orEmpty()
+
+private fun JsonObject.textListField(key: String): List<String> {
+    val element = get(key) ?: return emptyList()
+    return when {
+        element.isJsonArray -> element.asJsonArray.mapNotNull { it.toCloudText().takeIf(String::isNotBlank) }
+        else -> element.toCloudText().split(',', '|').map(::cleanDisplayText).filter { it.isNotBlank() }
+    }.distinct()
+}
+
+private fun JsonObject.intField(key: String): Int =
+    runCatching {
+        val element = get(key) ?: return 0
+        if (element.isJsonPrimitive && element.asJsonPrimitive.isNumber) element.asInt
+        else element.toCloudText().filter(Char::isDigit).toIntOrNull() ?: 0
+    }.getOrDefault(0).coerceIn(0, 100)
+
+private fun JsonObject.booleanField(key: String): Boolean =
+    runCatching {
+        val element = get(key) ?: return false
+        if (element.isJsonPrimitive && element.asJsonPrimitive.isBoolean) element.asBoolean
+        else element.toCloudText().equals("true", ignoreCase = true)
+    }.getOrDefault(false)
+
+private fun JsonElement.toCloudText(): String = when {
+    isJsonNull -> ""
+    isJsonPrimitive -> asString
+    isJsonArray -> asJsonArray.joinToString(" · ") { it.toCloudText() }
+    isJsonObject -> asJsonObject.entrySet().joinToString(" · ") { "${it.key}: ${it.value.toCloudText()}" }
+    else -> toString()
+}.let(::cleanDisplayText)
 
 private fun parseLineup(value: String): List<LineupPlayerView> = value.lines().mapNotNull { line ->
     if (line.isBlank()) return@mapNotNull null
@@ -1423,6 +1617,56 @@ private fun String.canonicalNameKey(): String =
         .replace("ç", "c")
         .replace(Regex("[^a-z0-9,./%]+"), " ")
         .trim()
+
+@Composable
+private fun CloudAiReadingCard(reading: CloudAiReading, accent: Color) {
+    Surface(shape = RoundedCornerShape(22.dp), color = accent.copy(alpha = 0.11f)) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Tag(reading.statusLabel, accent)
+                Text(
+                    cleanDisplayText(reading.providerLabel),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = TextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f).padding(start = 10.dp),
+                )
+            }
+            Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f)) {
+                Column(Modifier.fillMaxWidth().padding(13.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    Text(
+                        cleanDisplayText(reading.headline),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    if (reading.confidenceLabel.isNotBlank()) {
+                        Text("Confiance IA : ${reading.confidenceLabel}", style = MaterialTheme.typography.labelLarge, color = accent)
+                    }
+                }
+            }
+
+            reading.sections.forEach { section ->
+                val color = when {
+                    section.title.contains("Favori", ignoreCase = true) -> Amber
+                    section.title.contains("Conclusion", ignoreCase = true) -> accent
+                    section.title.contains("Sources", ignoreCase = true) -> Blue
+                    section.title.contains("Accord", ignoreCase = true) -> Violet
+                    else -> Mint
+                }
+                LocalAiMiniBlock(section.title, section.lines, color, maxLines = 4)
+            }
+            if (reading.diagnosticLines.isNotEmpty()) {
+                LocalAiMiniBlock("Transparence IA", reading.diagnosticLines, Blue, maxLines = 6)
+            }
+        }
+    }
+}
 
 @Composable
 private fun LocalAiReadingCard(reading: LocalAiReading, accent: Color) {

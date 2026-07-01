@@ -45,6 +45,9 @@ service cloud.firestore {
         && data.updatedAt is int
         && data.expiresAt is int
         && data.expiresAt > request.time.toMillis()
+        && data.aiGeneratedAt is int
+        && data.aiGeneratedAt >= 0
+        && data.aiGeneratedAt <= request.time.toMillis() + 600000
         && data.updatedAt <= request.time.toMillis() + 600000
         && data.updatedAt >= request.time.toMillis() - 86400000
         && data.eventDate >= request.time.toMillis() - 172800000
@@ -63,6 +66,8 @@ service cloud.firestore {
         && isSafeString(data.playerScenarios, 2400)
         && isSafeString(data.sourceDetails, 2400)
         && isSafeString(data.contextInsights, 2400)
+        && isSafeString(data.aiAnalysis, 6000)
+        && isSafeString(data.aiDiagnostic, 2600)
         && isSafeString(data.positiveArguments, 1200)
         && isSafeString(data.negativeArguments, 1200)
         && isSafeString(data.homeLineup, 2400)
@@ -85,6 +90,9 @@ service cloud.firestore {
         && data.updatedAt is int
         && data.expiresAt is int
         && data.expiresAt > request.time.toMillis()
+        && data.aiGeneratedAt is int
+        && data.aiGeneratedAt >= 0
+        && data.aiGeneratedAt <= request.time.toMillis() + 600000
         && data.updatedAt <= request.time.toMillis() + 600000
         && data.updatedAt >= request.time.toMillis() - 86400000
         && data.eventDate >= request.time.toMillis() - 172800000
@@ -103,6 +111,8 @@ service cloud.firestore {
         && isSafeString(data.playerScenarios, 2400)
         && isSafeString(data.sourceDetails, 2400)
         && isSafeString(data.contextInsights, 2400)
+        && isSafeString(data.aiAnalysis, 6000)
+        && isSafeString(data.aiDiagnostic, 2600)
         && isSafeString(data.positiveArguments, 1200)
         && isSafeString(data.negativeArguments, 1200)
         && isSafeString(data.homeLineup, 2400)
@@ -155,7 +165,10 @@ service cloud.firestore {
         'playerScenarios',
         'sourceDetails',
         'contextInsights',
-        'sourceAgreement'
+        'sourceAgreement',
+        'aiAnalysis',
+        'aiDiagnostic',
+        'aiGeneratedAt'
       ];
     }
 

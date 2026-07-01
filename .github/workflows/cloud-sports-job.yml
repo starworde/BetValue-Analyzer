@@ -9,9 +9,8 @@ on:
       - "cloud-job/**"
       - ".github/workflows/cloud-sports-job.yml"
   schedule:
-    # UTC. Check automatique toutes les 3 heures pour rester compatible quota gratuit Firestore.
-    # Le job prémâche les analyses sans réécrire inutilement trop souvent.
-    - cron: "0 */3 * * *"
+    # UTC. Check automatique toutes les 2 heures avec cache Firestore/IA pour rester compatible quota gratuit.
+    - cron: "0 */2 * * *"
 
 permissions:
   contents: read
@@ -44,4 +43,16 @@ jobs:
           EVENT_LOOKAHEAD_DAYS: "365"
           MAX_RESULTS_TO_WRITE: "900"
           MAX_REMOVED_SPORT_DELETES: "120"
+          AI_MODE: "automatic"
+          MAX_AI_EVENTS: "18"
+          AI_CACHE_TTL_HOURS: "12"
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GROQ_MODEL: ${{ vars.GROQ_MODEL }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          MISTRAL_FREE_ENABLED: ${{ vars.MISTRAL_FREE_ENABLED }}
+          MISTRAL_MODEL: ${{ vars.MISTRAL_MODEL }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_FREE_MODEL: ${{ vars.OPENROUTER_FREE_MODEL }}
         run: npm start

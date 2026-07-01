@@ -28,6 +28,14 @@ class SettingsScreenDiagnosticsTest {
                 cloudJobSourcesChecked = 18,
                 cloudJobSourceErrors = 1,
                 cloudJobSourceErrorDetails = "UCI WorldTour : HTTP 503",
+                aiFreeEnabled = setOf("Gemini free tier", "Groq free tier"),
+                aiPaidDisabled = setOf("OpenAI", "Claude / Anthropic"),
+                aiMode = "double",
+                aiCalled = 14,
+                aiResponded = 12,
+                aiCacheHits = 9,
+                aiFusionCount = 6,
+                aiFallbackUsed = 2,
             ),
         )
 
@@ -37,6 +45,9 @@ class SettingsScreenDiagnosticsTest {
         val responding = rows.single { it.label == "Sources cloud qui répondent" }.value
         val empty = rows.single { it.label == "Sources cloud vides" }.value
         val errors = rows.single { it.label == "Sources cloud en erreur" }.value
+        val aiFree = rows.single { it.label == "IA gratuites actives" }.value
+        val aiFusion = rows.single { it.label == "Fusion IA" }.value
+        val paidDisabled = rows.single { it.label == "IA payantes" }.value
 
         assertTrue(github.contains("success", ignoreCase = true))
         assertTrue(github.contains("860/900"))
@@ -45,6 +56,12 @@ class SettingsScreenDiagnosticsTest {
         assertTrue(responding.contains("volleyball"))
         assertTrue(empty.contains("boxing"))
         assertTrue(errors.contains("UCI WorldTour"))
+        assertTrue(aiFree.contains("Gemini"))
+        assertTrue(aiFree.contains("Groq"))
+        assertTrue(aiFusion.contains("12/14"))
+        assertTrue(aiFusion.contains("6 fusion"))
+        assertTrue(aiFusion.contains("9 cache"))
+        assertTrue(paidDisabled.contains("OpenAI"))
     }
 
     @Test

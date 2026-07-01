@@ -1,3 +1,5 @@
+import { enrichResultsWithMultiAi, multiAiProviderDiagnostics } from "./multi-ai.mjs";
+
 const APP_VERSION = "github-actions-cloud-v1";
 const JOB_STARTED_AT = Date.now();
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -128,6 +130,17 @@ const diagnostics = {
   firestoreCleanupError: "",
   newsChecked: 0,
   newsWithSignals: 0,
+  aiConfigured: multiAiProviderDiagnostics().configured,
+  aiFreeEnabled: [],
+  aiPaidDisabled: multiAiProviderDiagnostics().paidDisabled,
+  aiMode: multiAiProviderDiagnostics().mode,
+  aiCalled: 0,
+  aiResponded: 0,
+  aiErrors: [],
+  aiCacheHits: 0,
+  aiFusionCount: 0,
+  aiFallbackUsed: 0,
+  aiQuotaReached: false,
 };
 
 main().catch(async (error) => {
@@ -150,20 +163,28 @@ main().catch(async (error) => {
 
 async function main() {
   const events = (await collectEvents()).filter((event) => !isRemovedSport(event.sport));
+  const eventsById = new Map(events.map((event) => [event.eventId, event]));
   diagnostics.eventsFound = events.length;
   diagnostics.eventsBySport = countBy(events, (event) => event.sport);
   diagnostics.sportsWithoutEvents = CONFIGURED_SPORTS.filter((sport) => !diagnostics.eventsBySport[sport]);
   const newsByEventId = await collectNewsContexts(events);
 
-  const results = events
+  const baseResults = events
     .map((event) => buildCloudResult(event, newsByEventId.get(event.eventId)))
     .filter(Boolean)
     .sort((a, b) => a.eventDate - b.eventDate || b.confidenceScore - a.confidenceScore)
     .slice(0, MAX_RESULTS_TO_WRITE);
-  diagnostics.resultsPrepared = results.length;
-  diagnostics.resultsBySport = countBy(results, (result) => result.sport);
 
   if (process.env.DRY_RUN === "1") {
+    const results = await enrichResultsWithMultiAi({
+      results: baseResults,
+      eventsById,
+      newsByEventId,
+      diagnostics,
+      db: null,
+    });
+    diagnostics.resultsPrepared = results.length;
+    diagnostics.resultsBySport = countBy(results, (result) => result.sport);
     console.log(JSON.stringify({
       status: "dry-run",
       eventsFound: diagnostics.eventsFound,
@@ -178,17 +199,38 @@ async function main() {
       eventsBySport: diagnostics.eventsBySport,
       sportsWithoutEvents: diagnostics.sportsWithoutEvents,
       resultsBySport: diagnostics.resultsBySport,
+      aiConfigured: diagnostics.aiConfigured,
+      aiFreeEnabled: diagnostics.aiFreeEnabled,
+      aiPaidDisabled: diagnostics.aiPaidDisabled,
+      aiMode: diagnostics.aiMode,
+      aiCalled: diagnostics.aiCalled,
+      aiResponded: diagnostics.aiResponded,
+      aiErrors: diagnostics.aiErrors.slice(0, 8),
+      aiCacheHits: diagnostics.aiCacheHits,
+      aiFusionCount: diagnostics.aiFusionCount,
+      aiFallbackUsed: diagnostics.aiFallbackUsed,
+      aiQuotaReached: diagnostics.aiQuotaReached,
       sampleEvents: results.slice(0, 8).map((result) => ({
         sport: result.sport,
         competition: result.competition,
         eventName: result.eventName,
         selection: result.selection,
+        aiDiagnostic: result.aiDiagnostic,
       })),
     }, null, 2));
     return;
   }
 
   const db = await initializeFirestore();
+  const results = await enrichResultsWithMultiAi({
+    results: baseResults,
+    eventsById,
+    newsByEventId,
+    diagnostics,
+    db,
+  });
+  diagnostics.resultsPrepared = results.length;
+  diagnostics.resultsBySport = countBy(results, (result) => result.sport);
   try {
     await deleteRemovedSports(db);
     const written = await writeCloudResults(db, results);
@@ -209,6 +251,13 @@ async function main() {
         sourceErrors: diagnostics.sourceErrors.length,
         eventsBySport: diagnostics.eventsBySport,
         resultsBySport: diagnostics.resultsBySport,
+        aiConfigured: diagnostics.aiConfigured,
+        aiFreeEnabled: diagnostics.aiFreeEnabled,
+        aiCalled: diagnostics.aiCalled,
+        aiResponded: diagnostics.aiResponded,
+        aiErrors: diagnostics.aiErrors.slice(0, 8),
+        aiFallbackUsed: diagnostics.aiFallbackUsed,
+        aiQuotaReached: diagnostics.aiQuotaReached,
       }, null, 2));
       return;
     }
@@ -230,6 +279,17 @@ async function main() {
     eventsBySport: diagnostics.eventsBySport,
     sportsWithoutEvents: diagnostics.sportsWithoutEvents,
     resultsBySport: diagnostics.resultsBySport,
+    aiConfigured: diagnostics.aiConfigured,
+    aiFreeEnabled: diagnostics.aiFreeEnabled,
+    aiPaidDisabled: diagnostics.aiPaidDisabled,
+    aiMode: diagnostics.aiMode,
+    aiCalled: diagnostics.aiCalled,
+    aiResponded: diagnostics.aiResponded,
+    aiErrors: diagnostics.aiErrors.slice(0, 8),
+    aiCacheHits: diagnostics.aiCacheHits,
+    aiFusionCount: diagnostics.aiFusionCount,
+    aiFallbackUsed: diagnostics.aiFallbackUsed,
+    aiQuotaReached: diagnostics.aiQuotaReached,
   }, null, 2));
 }
 
@@ -734,6 +794,9 @@ function buildCloudResult(event, newsContext) {
     sourceDetails: compactText(`${event.sourceName} · ${event.competition}`, 2400),
     contextInsights: compactText(contextInsights, 2400),
     sourceAgreement: clampInt(confidence + 8, 0, 100),
+    aiAnalysis: "",
+    aiDiagnostic: "",
+    aiGeneratedAt: 0,
   };
 }
 
@@ -876,6 +939,17 @@ async function writeDiagnostic(db, extra = {}) {
     newsWithSignals: diagnostics.newsWithSignals,
     sourcesChecked: diagnostics.sourcesChecked,
     sourceErrors: diagnostics.sourceErrors.slice(0, 20),
+    aiConfigured: diagnostics.aiConfigured,
+    aiFreeEnabled: diagnostics.aiFreeEnabled,
+    aiPaidDisabled: diagnostics.aiPaidDisabled,
+    aiMode: diagnostics.aiMode,
+    aiCalled: diagnostics.aiCalled,
+    aiResponded: diagnostics.aiResponded,
+    aiErrors: diagnostics.aiErrors.slice(0, 20),
+    aiCacheHits: diagnostics.aiCacheHits,
+    aiFusionCount: diagnostics.aiFusionCount,
+    aiFallbackUsed: diagnostics.aiFallbackUsed,
+    aiQuotaReached: diagnostics.aiQuotaReached,
     error: extra.error || "",
     updatedAt: finishedAt,
   }, { merge: true });

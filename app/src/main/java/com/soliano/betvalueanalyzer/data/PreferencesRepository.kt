@@ -51,6 +51,17 @@ data class UserSettings(
     val cloudJobFirestoreError: String = "",
     val cloudJobFirestoreCleanupError: String = "",
     val cloudJobError: String = "",
+    val aiConfigured: Set<String> = emptySet(),
+    val aiFreeEnabled: Set<String> = emptySet(),
+    val aiPaidDisabled: Set<String> = emptySet(),
+    val aiMode: String = "",
+    val aiCalled: Int = 0,
+    val aiResponded: Int = 0,
+    val aiErrors: String = "",
+    val aiCacheHits: Int = 0,
+    val aiFusionCount: Int = 0,
+    val aiFallbackUsed: Int = 0,
+    val aiQuotaReached: Boolean = false,
 )
 
 interface SyncMetadataStore {
@@ -93,6 +104,17 @@ class PreferencesRepository(private val context: Context) : SyncMetadataStore, C
         val cloudJobFirestoreError = stringPreferencesKey("cloud_job_firestore_error")
         val cloudJobFirestoreCleanupError = stringPreferencesKey("cloud_job_firestore_cleanup_error")
         val cloudJobError = stringPreferencesKey("cloud_job_error")
+        val aiConfigured = stringSetPreferencesKey("ai_configured")
+        val aiFreeEnabled = stringSetPreferencesKey("ai_free_enabled")
+        val aiPaidDisabled = stringSetPreferencesKey("ai_paid_disabled")
+        val aiMode = stringPreferencesKey("ai_mode")
+        val aiCalled = longPreferencesKey("ai_called")
+        val aiResponded = longPreferencesKey("ai_responded")
+        val aiErrors = stringPreferencesKey("ai_errors")
+        val aiCacheHits = longPreferencesKey("ai_cache_hits")
+        val aiFusionCount = longPreferencesKey("ai_fusion_count")
+        val aiFallbackUsed = longPreferencesKey("ai_fallback_used")
+        val aiQuotaReached = booleanPreferencesKey("ai_quota_reached")
     }
 
     val settings: Flow<UserSettings> = context.dataStore.data
@@ -141,6 +163,17 @@ class PreferencesRepository(private val context: Context) : SyncMetadataStore, C
                 cloudJobFirestoreError = preferences[Keys.cloudJobFirestoreError].orEmpty(),
                 cloudJobFirestoreCleanupError = preferences[Keys.cloudJobFirestoreCleanupError].orEmpty(),
                 cloudJobError = preferences[Keys.cloudJobError].orEmpty(),
+                aiConfigured = preferences[Keys.aiConfigured].orEmpty(),
+                aiFreeEnabled = preferences[Keys.aiFreeEnabled].orEmpty(),
+                aiPaidDisabled = preferences[Keys.aiPaidDisabled].orEmpty(),
+                aiMode = preferences[Keys.aiMode].orEmpty(),
+                aiCalled = (preferences[Keys.aiCalled] ?: 0L).toInt(),
+                aiResponded = (preferences[Keys.aiResponded] ?: 0L).toInt(),
+                aiErrors = preferences[Keys.aiErrors].orEmpty(),
+                aiCacheHits = (preferences[Keys.aiCacheHits] ?: 0L).toInt(),
+                aiFusionCount = (preferences[Keys.aiFusionCount] ?: 0L).toInt(),
+                aiFallbackUsed = (preferences[Keys.aiFallbackUsed] ?: 0L).toInt(),
+                aiQuotaReached = preferences[Keys.aiQuotaReached] ?: false,
             )
         }
 
@@ -190,6 +223,17 @@ class PreferencesRepository(private val context: Context) : SyncMetadataStore, C
             preferences[Keys.cloudJobFirestoreError] = diagnostic.firestoreError
             preferences[Keys.cloudJobFirestoreCleanupError] = diagnostic.firestoreCleanupError
             preferences[Keys.cloudJobError] = diagnostic.error
+            preferences[Keys.aiConfigured] = diagnostic.aiConfigured.toSet()
+            preferences[Keys.aiFreeEnabled] = diagnostic.aiFreeEnabled.toSet()
+            preferences[Keys.aiPaidDisabled] = diagnostic.aiPaidDisabled.toSet()
+            preferences[Keys.aiMode] = diagnostic.aiMode
+            preferences[Keys.aiCalled] = diagnostic.aiCalled.toLong()
+            preferences[Keys.aiResponded] = diagnostic.aiResponded.toLong()
+            preferences[Keys.aiErrors] = diagnostic.aiErrors.take(8).joinToString(" | ")
+            preferences[Keys.aiCacheHits] = diagnostic.aiCacheHits.toLong()
+            preferences[Keys.aiFusionCount] = diagnostic.aiFusionCount.toLong()
+            preferences[Keys.aiFallbackUsed] = diagnostic.aiFallbackUsed.toLong()
+            preferences[Keys.aiQuotaReached] = diagnostic.aiQuotaReached
         }
     }
 

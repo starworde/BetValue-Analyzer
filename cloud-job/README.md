@@ -1,38 +1,59 @@
 # BetValue cloud job
 
-Ce dossier contient le job gratuit prévu pour GitHub Actions.
+Ce dossier contient le job Node.js lancé par GitHub Actions. Il prépare les événements sportifs publics, calcule les résultats consolidés, enrichit certains matchs avec une couche multi‑IA gratuite si des clés sont disponibles, puis écrit le tout dans Firestore.
 
-Il ne remplace pas le calcul local Android : il prépare une base commune dans Firestore pour que l’application puisse lire des résultats déjà calculés quand ils sont disponibles.
+Il ne remplace pas l’analyse locale Android : il prémâche les dossiers lourds pour que l’application reste fluide et puisse afficher des analyses déjà calculées.
 
-Collections Firestore utilisées :
+## Collections Firestore
 
-- `/cloud_results/{eventId}` : résultats préparés automatiquement par GitHub Actions ;
-- `/cloud_diagnostics/current` : état du dernier job ;
-- `/shared_results/{eventId}` : résultats collaboratifs envoyés par les téléphones Android.
+- `/cloud_results/{eventId}` : événements et analyses préparés automatiquement ;
+- `/cloud_diagnostics/current` : état du dernier job, sources, erreurs, quotas et diagnostic IA ;
+- `/shared_results/{eventId}` : résultats collaboratifs légers envoyés par les téléphones.
 
-Secrets GitHub nécessaires :
+## Secrets obligatoires
 
-- `FIREBASE_SERVICE_ACCOUNT_JSON` : JSON complet d’un compte de service Firebase encodé en base64 ou collé tel quel.
+- `FIREBASE_SERVICE_ACCOUNT_JSON` : JSON complet d’un compte de service Firebase, brut ou encodé base64.
 - `FIREBASE_PROJECT_ID` : identifiant du projet Firebase, par exemple `betvalue-analyzer`.
 
-Le job utilise uniquement GitHub Actions + Firebase Firestore. Il n’utilise pas Firebase Cloud Functions, ne demande pas Blaze, ne demande pas de serveur et ne nécessite pas de PC allumé.
+## Secrets IA gratuits optionnels
 
-Commande GitHub Actions :
+Aucune clé IA ne doit être dans l’APK Android.
+
+- `GEMINI_API_KEY`
+- `GROQ_API_KEY`
+- `MISTRAL_API_KEY` avec `MISTRAL_FREE_ENABLED=1` seulement si l’usage gratuit est confirmé
+- `OPENROUTER_API_KEY` avec `OPENROUTER_FREE_MODEL` contenant obligatoirement `:free`
+
+Fournisseurs payants désactivés dans le diagnostic : OpenAI, Claude/Anthropic, xAI/Grok, Cohere et services à facturation obligatoire.
+
+## Variables utiles
+
+- `AI_MODE` : `automatic`, `economique`, `double`, `renforce` ou `complet`.
+- `MAX_AI_EVENTS` : nombre maximal d’événements enrichis par IA externe par run.
+- `AI_CACHE_TTL_HOURS` : durée de réutilisation du cache IA Firestore.
+- `EVENT_LOOKAHEAD_DAYS` : horizon calendrier.
+- `MAX_RESULTS_TO_WRITE` : limite d’écriture Firestore par run.
+
+## Commandes
 
 ```bash
 npm install --omit=dev
 npm start
 ```
 
-Diagnostic attendu après une exécution :
+Vérification syntaxe :
 
-```text
-cloud_diagnostics/current.status = success
-cloud_diagnostics/current.eventsFound > 0
-cloud_diagnostics/current.resultsWritten > 0
-cloud_diagnostics/current.eventsBySport.volleyball >= 0
+```bash
+node --check index.mjs
+node --check multi-ai.mjs
 ```
 
-Le diagnostic contient aussi `eventsBySport` et `resultsBySport` pour vérifier que les sports secondaires conservés comme volley-ball, cyclisme, handball, rugby, tennis, baseball, basket, hockey sur glace ou athlétisme ne sont pas silencieusement oubliés.
+## Diagnostic attendu
 
-`sportsWithoutEvents` liste les sports configurés qui n’ont rien remonté pendant cette exécution. C’est utile pour différencier un vrai calendrier vide d’un problème de source publique.
+`cloud_diagnostics/current` expose notamment :
+
+- `status`, `eventsFound`, `resultsWritten`, `eventsBySport`, `sportsWithoutEvents` ;
+- `aiConfigured`, `aiFreeEnabled`, `aiPaidDisabled`, `aiMode` ;
+- `aiCalled`, `aiResponded`, `aiErrors`, `aiCacheHits`, `aiFusionCount`, `aiFallbackUsed`, `aiQuotaReached`.
+
+Si aucun fournisseur IA gratuit n’est configuré, le job écrit quand même des résultats avec fallback local et le diagnostic l’indique clairement.

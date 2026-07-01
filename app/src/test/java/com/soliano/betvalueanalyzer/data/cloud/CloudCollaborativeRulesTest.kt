@@ -23,6 +23,9 @@ class CloudCollaborativeRulesTest {
         assertEquals(83, map["reliability"])
         assertTrue((map["calculatedResults"] as String).contains("Argentine"))
         assertTrue((map["probabilities"] as String).contains("consensus"))
+        assertTrue(map.containsKey("aiAnalysis"))
+        assertTrue(map.containsKey("aiDiagnostic"))
+        assertEquals(1_800_000_000_000L - 10_000L, map["aiGeneratedAt"])
     }
 
     @Test
@@ -33,6 +36,7 @@ class CloudCollaborativeRulesTest {
 
         assertEquals(1, merge.predictionsToUpsert.size)
         assertTrue(merge.predictionsToUpsert.single().sourceName.contains("Cloud collaboratif"))
+        assertTrue(merge.predictionsToUpsert.single().aiAnalysis.contains("lectureRapide"))
     }
 
     @Test
@@ -160,6 +164,16 @@ class CloudCollaborativeRulesTest {
                     mapOf("source" to "UCI WorldTour", "error" to "HTTP 503"),
                     "Volleyball World : timeout",
                 ),
+                "aiFreeEnabled" to listOf("Gemini free tier", "Groq free tier"),
+                "aiPaidDisabled" to listOf("OpenAI", "Claude / Anthropic"),
+                "aiMode" to "double",
+                "aiCalled" to 14,
+                "aiResponded" to 12,
+                "aiErrors" to listOf("Groq: quota"),
+                "aiCacheHits" to 4,
+                "aiFusionCount" to 6,
+                "aiFallbackUsed" to 2,
+                "aiQuotaReached" to true,
             )
         )
 
@@ -170,6 +184,15 @@ class CloudCollaborativeRulesTest {
         assertEquals(2, diagnostic.sourceErrorsCount)
         assertTrue(diagnostic.sourceErrors.any { it.contains("UCI WorldTour") })
         assertTrue(diagnostic.sourceErrors.any { it.contains("timeout") })
+        assertEquals(listOf("Gemini free tier", "Groq free tier"), diagnostic.aiFreeEnabled)
+        assertEquals("double", diagnostic.aiMode)
+        assertEquals(14, diagnostic.aiCalled)
+        assertEquals(12, diagnostic.aiResponded)
+        assertEquals(4, diagnostic.aiCacheHits)
+        assertEquals(6, diagnostic.aiFusionCount)
+        assertEquals(2, diagnostic.aiFallbackUsed)
+        assertTrue(diagnostic.aiErrors.single().contains("Groq"))
+        assertTrue(diagnostic.aiQuotaReached)
     }
 
     @Test
@@ -184,6 +207,16 @@ class CloudCollaborativeRulesTest {
         assertTrue(message.contains("Firebase Console"))
         assertFalse(message.contains("googleapis"))
         assertFalse(message.contains("https://"))
+    }
+
+    @Test
+    fun `quota Firestore gratuit affiche un message clair`() {
+        val message = cloudCollaborativeErrorMessage(
+            IllegalStateException("RESOURCE_EXHAUSTED: Quota exceeded. HTTP 429"),
+        )
+
+        assertTrue(message.contains("Quota Firestore"))
+        assertTrue(message.contains("Cache"))
     }
 
     private fun prediction(): PredictionEntity = PredictionEntity(
@@ -222,6 +255,9 @@ class CloudCollaborativeRulesTest {
         sourceDetails = "ESPN public",
         contextInsights = "Aucun fait relevé",
         sourceAgreement = 78,
+        aiAnalysis = """{"source":"multi-ai-cloud","lectureRapide":"Argentine légèrement devant mais à vérifier.","scenarioPrincipal":"Argentine gagne court.","confianceIA":68}""",
+        aiDiagnostic = """{"iaGratuitesActivees":["Gemini free tier"],"iaRepondues":["Gemini free tier"],"coutEstime":"0 €"}""",
+        aiGeneratedAt = now - 10_000L,
     )
 
     private fun upcomingEvent(): UpcomingEventEntity = UpcomingEventEntity(

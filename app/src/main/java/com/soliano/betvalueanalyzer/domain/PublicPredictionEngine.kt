@@ -495,8 +495,8 @@ object PublicPredictionEngine {
                 formText,
             ) + listOfNotNull(venue?.positiveArgument(event)),
             negativeArguments = listOf(
-                "Une estimation statistique ne garantit jamais le résultat.",
-                "Blessures, compositions et changements de dernière minute peuvent ne pas être intégrés.",
+                "À recalculer si les compositions, blessures, suspensions ou conditions de match changent.",
+                "Dernière confirmation utile : effectif disponible, forme récente et contexte terrain.",
             ),
         )
     }

@@ -388,6 +388,27 @@ internal fun sourceHealthRows(state: AppUiState, language: String): List<SourceH
             if (state.settings.cloudJobSourceErrors > 0 || state.settings.cloudJobSourceErrorDetails.isNotBlank()) Danger else Mint,
         ),
         SourceHealthRow(
+            "IA gratuites actives",
+            aiFreeProvidersLabel(state.settings, language),
+            if (state.settings.aiFreeEnabled.isEmpty()) Blue else Mint,
+        ),
+        SourceHealthRow(
+            "Fusion IA",
+            aiFusionLabel(state.settings),
+            if (state.settings.aiResponded > 0 || state.settings.aiCacheHits > 0 || state.settings.aiFallbackUsed > 0) Mint else TextSecondary,
+        ),
+        SourceHealthRow(
+            "Erreurs IA / quota",
+            aiErrorsLabel(state.settings, language),
+            if (state.settings.aiErrors.isNotBlank() || state.settings.aiQuotaReached) Danger else Mint,
+        ),
+        SourceHealthRow(
+            "IA payantes",
+            state.settings.aiPaidDisabled.takeIf { it.isNotEmpty() }?.joinToString(", ")
+                ?: t(language, "Désactivées par défaut", "Disabled by default", "Desactivadas por defecto", "Standardmäßig deaktiviert"),
+            TextSecondary,
+        ),
+        SourceHealthRow(
             t(language, "Sources actives", "Active sources", "Fuentes activas", "Aktive Quellen"),
             if (sourceNames.isEmpty()) t(language, "Aucune source chargée", "No source loaded", "Ninguna fuente cargada", "Keine Quelle geladen")
             else "${sourceNames.size} · ${sourceNames.take(4).joinToString(", ")}",
@@ -443,6 +464,35 @@ private fun cloudEmptySourcesLabel(settings: UserSettings, language: String): St
         .sorted()
     return emptySports.takeIf { it.isNotEmpty() }?.joinToString(", ")
         ?: t(language, "Aucune source vide signalée", "No empty source reported", "Ninguna fuente vacía señalada", "Keine leere Quelle gemeldet")
+}
+
+private fun aiFreeProvidersLabel(settings: UserSettings, language: String): String =
+    settings.aiFreeEnabled
+        .takeIf { it.isNotEmpty() }
+        ?.joinToString(", ")
+        ?: t(
+            language,
+            "Aucune clé gratuite configurée · secours local",
+            "No free key configured · local fallback",
+            "Ninguna clave gratuita configurada · respaldo local",
+            "Kein kostenloser Schlüssel konfiguriert · lokaler Fallback",
+        )
+
+private fun aiFusionLabel(settings: UserSettings): String = listOf(
+    "mode ${settings.aiMode.ifBlank { "automatique" }}",
+    "${settings.aiResponded}/${settings.aiCalled.coerceAtLeast(settings.aiResponded)} réponse(s)",
+    "${settings.aiFusionCount} fusion(s)",
+    "${settings.aiCacheHits} cache",
+    "${settings.aiFallbackUsed} fallback",
+).joinToString(" · ")
+
+private fun aiErrorsLabel(settings: UserSettings, language: String): String {
+    val errors = cleanDisplayText(settings.aiErrors)
+    val quota = if (settings.aiQuotaReached) "Quota gratuit atteint" else ""
+    return listOf(errors, quota)
+        .filter { it.isNotBlank() }
+        .joinToString(" · ")
+        .ifBlank { t(language, "Aucune erreur IA", "No AI error", "Sin error IA", "Kein KI-Fehler") }
 }
 
 private fun sourceHealthSportRows(state: AppUiState): List<SourceHealthRow> =
@@ -549,7 +599,13 @@ private fun firestoreStatus(
 ): Pair<String, androidx.compose.ui.graphics.Color> {
     if (!enabled) return t(language, "Désactivé", "Disabled", "Desactivado", "Deaktiviert") to TextSecondary
     val normalized = error.lowercase(Locale.FRANCE)
-    val hasFirestoreError = "firestore" in normalized || keyword in normalized || "refuse" in normalized || "permission" in normalized
+    val hasFirestoreError = "firestore" in normalized ||
+        keyword in normalized ||
+        "refuse" in normalized ||
+        "permission" in normalized ||
+        "quota" in normalized ||
+        "429" in normalized ||
+        "resource_exhausted" in normalized
     if (hasFirestoreError) return cleanDisplayText(error).ifBlank { "Erreur Firestore" } to Danger
     return if (successEpoch > 0L) {
         "OK · ${formatDate(successEpoch)}" to Mint

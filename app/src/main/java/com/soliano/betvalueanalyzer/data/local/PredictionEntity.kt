@@ -40,4 +40,7 @@ data class PredictionEntity(
     val sourceDetails: String,
     val contextInsights: String,
     val sourceAgreement: Int,
+    val aiAnalysis: String = "",
+    val aiDiagnostic: String = "",
+    val aiGeneratedAt: Long = 0L,
 )

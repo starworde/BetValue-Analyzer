@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [AnalysisRecordEntity::class, SportEntity::class, PredictionEntity::class, UpcomingEventEntity::class, LiveEventEntity::class],
-    version = 9,
+    version = 10,
     exportSchema = true,
 )
 abstract class BetValueDatabase : RoomDatabase() {
@@ -36,6 +36,7 @@ abstract class BetValueDatabase : RoomDatabase() {
                 MIGRATION_6_7,
                 MIGRATION_7_8,
                 MIGRATION_8_9,
+                MIGRATION_9_10,
             ).build().also { instance = it }
         }
 
@@ -171,6 +172,14 @@ abstract class BetValueDatabase : RoomDatabase() {
         private val MIGRATION_8_9 = object : Migration(8, 9) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE predictions RENAME COLUMN betclicOdds TO referenceOdds")
+            }
+        }
+
+        private val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE predictions ADD COLUMN aiAnalysis TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE predictions ADD COLUMN aiDiagnostic TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE predictions ADD COLUMN aiGeneratedAt INTEGER NOT NULL DEFAULT 0")
             }
         }
     }

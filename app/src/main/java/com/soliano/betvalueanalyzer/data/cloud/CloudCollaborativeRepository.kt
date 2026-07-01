@@ -420,6 +420,11 @@ internal fun cloudCollaborativeErrorMessage(error: Throwable): String {
             normalized.contains("missing or insufficient permissions") ->
             "Acces Firestore refuse. Verifie les regles Firestore et l'auth anonyme Firebase."
 
+        normalized.contains("resource_exhausted") ||
+            normalized.contains("quota") ||
+            normalized.contains("http 429") ->
+            "Quota Firestore gratuit atteint. Cache conserve, prochaine lecture quand Firebase redevient disponible."
+
         normalized.contains("configuration_not_found") ||
             normalized.contains("anonymous") && normalized.contains("disabled") ->
             "Auth anonyme Firebase non activee. Active Authentication > Anonymous dans Firebase Console."

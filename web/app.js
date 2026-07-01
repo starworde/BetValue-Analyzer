@@ -203,6 +203,9 @@ function normalizeCloudResult(raw) {
     sourceDetails: cleanText(raw.sourceDetails || ""),
     contextInsights: cleanText(raw.contextInsights || ""),
     sourceAgreement: clamp(numberValue(raw.sourceAgreement, raw.reliability || confidenceScore), 0, 100),
+    aiAnalysis: cleanText(raw.aiAnalysis || ""),
+    aiDiagnostic: cleanText(raw.aiDiagnostic || ""),
+    aiGeneratedAt: numberValue(raw.aiGeneratedAt, 0),
     eventType: cleanText(raw.eventType || inferEventType(raw)),
   };
 }
@@ -247,7 +250,7 @@ function renderHero(metrics, diagnostics) {
       <p class="${state.error ? "line" : "muted"}">${escapeHtml(state.syncLabel)}${state.error ? ` · ${escapeHtml(state.error)}` : ""}</p>
       ${
         diagnostics
-          ? `<p class="mini">Cloud job : ${escapeHtml(String(diagnostics.resultsPrepared || 0))} résultats · ${escapeHtml(String(diagnostics.newsWithSignals || 0))} infos presse utiles · ${escapeHtml(formatTime(diagnostics.updatedAt || 0))}</p>`
+          ? `<p class="mini">Cloud job : ${escapeHtml(String(diagnostics.resultsPrepared || 0))} résultats · IA ${escapeHtml(String(diagnostics.aiResponded || 0))}/${escapeHtml(String(diagnostics.aiCalled || 0))} · ${escapeHtml(formatTime(diagnostics.updatedAt || 0))}</p>`
           : ""
       }
     </section>
@@ -386,6 +389,9 @@ function renderSettings() {
               <h3>Diagnostic cloud</h3>
               <p class="line">Événements : ${escapeHtml(String(diagnostics.eventsFound || 0))}</p>
               <p class="line">Résultats préparés : ${escapeHtml(String(diagnostics.resultsPrepared || 0))}</p>
+              <p class="line">IA gratuites actives : ${escapeHtml((diagnostics.aiFreeEnabled || []).join(", ") || "aucune, fallback local")}</p>
+              <p class="line">Fusion IA : ${escapeHtml(String(diagnostics.aiFusionCount || 0))} · cache ${escapeHtml(String(diagnostics.aiCacheHits || 0))} · fallback ${escapeHtml(String(diagnostics.aiFallbackUsed || 0))}</p>
+              <p class="line">IA payantes désactivées : ${escapeHtml((diagnostics.aiPaidDisabled || []).slice(0, 4).join(", ") || "oui")}</p>
               <p class="line">Sports sans événement : ${escapeHtml((diagnostics.sportsWithoutEvents || []).join(", ") || "aucun")}</p>
             </div>`
           : `<p class="muted">Aucun diagnostic cloud chargé.</p>`
@@ -473,6 +479,7 @@ function renderModal(result) {
           </div>
         </div>
         <div class="detail-list">
+          ${renderAiBlock(result)}
           ${renderTextBlock("Bilan statistiques", result.statSummary || result.calculatedResults)}
           ${renderTextBlock("Infos récentes", result.contextInsights || "Aucun fait relevé")}
           ${renderTextBlock("Joueurs / compositions", [result.homeLineup, result.awayLineup, result.playerScenarios].filter(Boolean).join("\n"))}
@@ -481,6 +488,51 @@ function renderModal(result) {
         </div>
       </article>
     </section>
+  `;
+}
+
+function renderAiBlock(result) {
+  const analysis = safeJson(result.aiAnalysis, null);
+  if (!analysis) return "";
+  const diagnostic = safeJson(result.aiDiagnostic, null);
+  const sections = [
+    ["Lecture globale", analysis.lectureRapide, analysis.favoriLogique],
+    ["Analyse sportive / tactique", analysis.reponseStrategique, analysis.avantagesExploitables, analysis.avantagesNeutralises],
+    ["Favori fragile / outsider crédible", analysis.dangerAdversaire, analysis.scenarioAlternatif],
+    ["Conclusion argumentée", analysis.scenarioPrincipal, analysis.pointsASurveiller],
+    ["Sources & limites", analysis.sourcesUtilisees, analysis.donneesManquantes, analysis.erreursOuLimites],
+    ["Accord entre IA", analysis.accordEntreIA],
+  ]
+    .map(([title, ...items]) => [title, items.flatMap(splitUsefulLines).slice(0, 4)])
+    .filter(([, lines]) => lines.length);
+  const diagnosticLines = diagnostic
+    ? [
+        `IA gratuites actives : ${(diagnostic.iaGratuitesActivees || []).join(", ") || "aucune, fallback local"}`,
+        `Réponses IA : ${(diagnostic.iaRepondues || []).length}/${Math.max((diagnostic.iaAppelees || []).length, (diagnostic.iaRepondues || []).length)}`,
+        `Fusion : ${diagnostic.fusionFaite ? "faite" : "non faite"} · fallback : ${diagnostic.fallbackUtilise ? "oui" : "non"} · coût : ${diagnostic.coutEstime || "0 €"}`,
+      ]
+    : [];
+  return `
+    <div class="info-block ai-block">
+      <h3>Analyse IA approfondie</h3>
+      <p class="line"><strong>${escapeHtml(analysis.lectureRapide || analysis.scenarioPrincipal || "Analyse enrichie disponible.")}</strong></p>
+      ${analysis.confianceIA ? `<p class="line">Confiance IA : ${escapeHtml(String(analysis.confianceIA))}/100</p>` : ""}
+      ${sections
+        .map(
+          ([title, lines]) => `
+            <div class="nested-block">
+              <strong>${escapeHtml(title)}</strong>
+              ${lines.map((line) => `<p class="line">• ${escapeHtml(line)}</p>`).join("")}
+            </div>
+          `,
+        )
+        .join("")}
+      ${
+        diagnosticLines.length
+          ? `<div class="nested-block"><strong>Transparence IA</strong>${diagnosticLines.map((line) => `<p class="line">• ${escapeHtml(line)}</p>`).join("")}</div>`
+          : ""
+      }
+    </div>
   `;
 }
 

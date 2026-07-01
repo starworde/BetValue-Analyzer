@@ -13,7 +13,9 @@ private const val MAX_EVENT_LOOKBACK_MS = 48 * 60 * 60 * 1000L
 private const val MAX_CLOCK_SKEW_MS = 10 * 60 * 1000L
 private const val MAX_TEXT_FIELD_CHARS = 1_200
 private const val MAX_SCENARIO_CHARS = 2_400
-private const val MAX_DOCUMENT_CHARS = 9_000
+private const val MAX_AI_ANALYSIS_CHARS = 6_000
+private const val MAX_AI_DIAGNOSTIC_CHARS = 2_600
+private const val MAX_DOCUMENT_CHARS = 18_000
 
 data class CloudSharedResult(
     val eventId: String,
@@ -55,6 +57,9 @@ data class CloudSharedResult(
     val sourceDetails: String,
     val contextInsights: String,
     val sourceAgreement: Int,
+    val aiAnalysis: String = "",
+    val aiDiagnostic: String = "",
+    val aiGeneratedAt: Long = 0L,
 )
 
 data class CloudSharedCalendarEvent(
@@ -102,6 +107,17 @@ data class CloudJobDiagnostic(
     val firestoreError: String = "",
     val firestoreCleanupError: String = "",
     val error: String = "",
+    val aiConfigured: List<String> = emptyList(),
+    val aiFreeEnabled: List<String> = emptyList(),
+    val aiPaidDisabled: List<String> = emptyList(),
+    val aiMode: String = "",
+    val aiCalled: Int = 0,
+    val aiResponded: Int = 0,
+    val aiErrors: List<String> = emptyList(),
+    val aiCacheHits: Int = 0,
+    val aiFusionCount: Int = 0,
+    val aiFallbackUsed: Int = 0,
+    val aiQuotaReached: Boolean = false,
 )
 
 data class CloudSyncReport(
@@ -204,6 +220,9 @@ fun PredictionEntity.toCloudSharedResult(
         sourceDetails = sourceDetails.trimCloudText(MAX_SCENARIO_CHARS),
         contextInsights = contextInsights.trimCloudText(MAX_SCENARIO_CHARS),
         sourceAgreement = sourceAgreement.coerceIn(0, 100),
+        aiAnalysis = aiAnalysis.trimCloudText(MAX_AI_ANALYSIS_CHARS),
+        aiDiagnostic = aiDiagnostic.trimCloudText(MAX_AI_DIAGNOSTIC_CHARS),
+        aiGeneratedAt = aiGeneratedAt.takeIf { it > 0L } ?: 0L,
     ).takeIf { it.isCoherent(now) }
 }
 
@@ -309,6 +328,9 @@ fun CloudSharedResult.toPredictionEntity(local: PredictionEntity? = null): Predi
         sourceDetails = sourceDetails,
         contextInsights = contextInsights,
         sourceAgreement = sourceAgreement,
+        aiAnalysis = aiAnalysis,
+        aiDiagnostic = aiDiagnostic,
+        aiGeneratedAt = aiGeneratedAt,
     )
 }
 
@@ -419,6 +441,9 @@ fun CloudSharedResult.toFirestoreMap(): Map<String, Any> = linkedMapOf(
     "sourceDetails" to sourceDetails,
     "contextInsights" to contextInsights,
     "sourceAgreement" to sourceAgreement,
+    "aiAnalysis" to aiAnalysis,
+    "aiDiagnostic" to aiDiagnostic,
+    "aiGeneratedAt" to aiGeneratedAt,
 )
 
 fun CloudSharedCalendarEvent.toFirestoreMap(): Map<String, Any> {
@@ -473,6 +498,9 @@ fun CloudSharedCalendarEvent.toFirestoreMap(): Map<String, Any> {
         "sourceDetails" to sourceName,
         "contextInsights" to "",
         "sourceAgreement" to 0,
+        "aiAnalysis" to "",
+        "aiDiagnostic" to "",
+        "aiGeneratedAt" to 0L,
     )
 }
 
@@ -518,6 +546,9 @@ fun cloudSharedResultFromMap(map: Map<String, Any?>): CloudSharedResult? = runCa
         sourceDetails = map.stringValue("sourceDetails"),
         contextInsights = map.stringValue("contextInsights"),
         sourceAgreement = map.intValue("sourceAgreement"),
+        aiAnalysis = map.stringValue("aiAnalysis", MAX_AI_ANALYSIS_CHARS),
+        aiDiagnostic = map.stringValue("aiDiagnostic", MAX_AI_DIAGNOSTIC_CHARS),
+        aiGeneratedAt = map.longValue("aiGeneratedAt"),
     )
 }.getOrNull()
 
@@ -540,6 +571,17 @@ fun cloudJobDiagnosticFromMap(map: Map<String, Any?>): CloudJobDiagnostic = Clou
     firestoreError = map.stringValue("firestoreError"),
     firestoreCleanupError = map.stringValue("firestoreCleanupError"),
     error = map.stringValue("error"),
+    aiConfigured = map.stringListValue("aiConfigured"),
+    aiFreeEnabled = map.stringListValue("aiFreeEnabled"),
+    aiPaidDisabled = map.stringListValue("aiPaidDisabled"),
+    aiMode = map.stringValue("aiMode"),
+    aiCalled = map.intValue("aiCalled"),
+    aiResponded = map.intValue("aiResponded"),
+    aiErrors = map.sourceErrorListValue("aiErrors"),
+    aiCacheHits = map.intValue("aiCacheHits"),
+    aiFusionCount = map.intValue("aiFusionCount"),
+    aiFallbackUsed = map.intValue("aiFallbackUsed"),
+    aiQuotaReached = map.booleanValue("aiQuotaReached"),
 )
 
 fun cloudDocumentIdFor(eventId: String): String =
@@ -574,8 +616,8 @@ private fun Double.isCloudProbability(): Boolean =
 private fun Map<String, Any>.stringPayloadSize(): Int =
     values.sumOf { value -> if (value is String) value.length else 16 }
 
-private fun Map<String, Any?>.stringValue(key: String): String =
-    (this[key] as? String).orEmpty().trimCloudText(MAX_SCENARIO_CHARS)
+private fun Map<String, Any?>.stringValue(key: String, max: Int = MAX_SCENARIO_CHARS): String =
+    (this[key] as? String).orEmpty().trimCloudText(max)
 
 private fun Map<String, Any?>.longValue(key: String): Long =
     when (val value = this[key]) {
@@ -631,3 +673,11 @@ private fun Map<String, Any?>.doubleValue(key: String): Double =
         is String -> value.toDoubleOrNull() ?: 0.0
         else -> 0.0
     }.takeIf { it.isFinite() && abs(it) < 1_000_000.0 } ?: 0.0
+
+private fun Map<String, Any?>.booleanValue(key: String): Boolean =
+    when (val value = this[key]) {
+        is Boolean -> value
+        is String -> value.equals("true", ignoreCase = true)
+        is Number -> value.toInt() != 0
+        else -> false
+    }

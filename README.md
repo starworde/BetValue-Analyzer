@@ -1,143 +1,91 @@
-# BetValue Analyzer 2.1
+# BetValue Analyzer
 
-Application Android qui récupère automatiquement les prochains événements sportifs et les cotes Betclic, puis classe les paris potentiels par probabilité de marché, value, confiance et risque.
+Application Android + web app de suivi sportif et d’analyse pré‑match/live. Elle récupère automatiquement les événements publics, consolide les statistiques utiles par sport, puis affiche des pronostics et une lecture “Analyste IA” quand des données suffisantes existent.
 
-> Réservé aux personnes majeures. Aucun gain n'est garanti. Les paris sportifs comportent un risque de perte d'argent.
+Le projet ne contient aucune clé IA ni secret Firebase dans l’APK. Les enrichissements cloud se font via GitHub Actions + Firestore, avec cache et fallback local.
 
-## Fonctionnement automatique
+## Ce que fait l’application
 
-1. L'utilisateur renseigne une seule fois une clé gratuite **The Odds API** dans les réglages.
-2. L'application interroge le flux documenté des prochains événements.
-3. Elle conserve uniquement les événements et issues pour lesquels le bookmaker `betclic_fr` expose une cote.
-4. Elle retire la marge de chaque bookmaker comparable.
-5. Elle calcule un consensus de marché indépendant de Betclic.
-6. Elle compare ce consensus au seuil de rentabilité de la cote Betclic.
-7. Elle affiche automatiquement les value bets potentielles, issues les plus probables, marchés équilibrés et paris à éviter.
+- événements à venir par sport, ligue, tournoi, GP ou compétition ;
+- favoris sport/compétition pour prioriser l’accueil ;
+- mode live limité aux événements en cours, 30 minutes avant départ et 30 minutes après fin ;
+- score live pour les sports de match, classement/top 3 pour courses et GP ;
+- statistiques adaptées par sport : football, rugby, tennis, cyclisme, F1/NASCAR, volley, basket, handball, baseball, hockey sur glace, golf, sports de combat, etc. ;
+- compositions terrain football/rugby quand elles sont disponibles ;
+- infos joueurs : absences, retours, suspensions, forme, charge récente et impact potentiel ;
+- analyse IA approfondie : contexte, dynamique, match-up, favori fragile, outsider crédible, conclusion argumentée ;
+- diagnostic cloud/IA dans les réglages.
 
-Il n'y a aucun match, participant, marché ou cote à saisir manuellement dans le parcours principal.
+Sports retirés de l’interface : snooker, football australien, fléchettes, cricket et hockey sur gazon.
 
-The Odds API référence officiellement **Betclic (FR)** avec la clé `betclic_fr` dans ses [bookmakers européens](https://the-odds-api.com/sports-odds-data/bookmaker-apis.html#eu-bookmakers). Une clé personnelle peut être créée sur la [page d'accès du fournisseur](https://the-odds-api.com/#get-access).
+## Couche IA
 
-## Fonctions incluses
+La couche IA est conçue pour raisonner, pas seulement reformuler les statistiques déjà visibles :
 
-- accueil automatique centré sur les prochains matchs ;
-- retrait automatique des événements déjà commencés, réévalué chaque minute ;
-- actualisation manuelle et périodique toutes les 6 heures avec WorkManager ;
-- délai anti-double-clic d'une minute et enrichissement réduit automatiquement quand le quota devient faible ;
-- cotes Betclic réelles lorsque le fournisseur les expose ;
-- consensus sans marge basé sur jusqu'à neuf bookmakers comparables ;
-- probabilité implicite, probabilité de consensus, edge et espérance mathématique ;
-- score de confiance, catégorie et niveau de risque ;
-- explication détaillée, points favorables et points de vigilance ;
-- recherche par équipe ou sport ;
-- ajout d'une prédiction au suivi en un toucher ;
-- historique Room, résultats, taux de réussite et ROI théorique ;
-- bankroll responsable et mode « analyse uniquement » ;
-- catalogue multi-sports extensible ;
-- aucune connexion au compte Betclic et aucun pari automatique.
+- collecte d’un dossier structuré par événement ;
+- appel optionnel de modèles gratuits côté cloud ;
+- fusion des réponses quand plusieurs IA répondent ;
+- stockage Firestore avec durée de cache ;
+- affichage Android en cartes courtes et lisibles ;
+- fallback local si aucune IA gratuite n’est configurée ou si le quota gratuit est atteint.
 
-## Première utilisation
+Fournisseurs gratuits prévus côté GitHub Actions :
 
-1. Installer et ouvrir l'APK.
-2. Confirmer la majorité et les avertissements de risque.
-3. Depuis l'accueil, toucher **Configurer la source automatique**.
-4. Toucher **Obtenir une clé gratuite** et créer une clé The Odds API.
-5. Coller la clé dans l'application, puis toucher **Enregistrer et récupérer les matchs**.
-6. Les prochains matchs et paris potentiels apparaissent automatiquement.
+- Gemini free tier ;
+- Groq free tier ;
+- Mistral uniquement si un mode gratuit est explicitement activé ;
+- OpenRouter uniquement avec un modèle `:free`.
 
-La clé API est chiffrée avec une clé AES non exportable de l'Android Keystore. Aucun identifiant Betclic n'est demandé ou stocké.
+Fournisseurs payants désactivés par défaut : OpenAI, Claude/Anthropic, xAI/Grok, Cohere et tout service nécessitant facturation obligatoire ou carte bancaire.
 
-## Méthode de scoring
+## Cloud gratuit
 
-Pour chaque bookmaker, la probabilité équivalente à une cote est normalisée afin de retirer la marge :
+Le cloud repose sur :
 
-```text
-probabilité normalisée = (1 / cote de l'issue) / somme(1 / toutes les cotes du marché)
-```
+- GitHub Actions pour préparer les événements et analyses ;
+- Firebase Authentication anonyme côté Android ;
+- Firestore pour partager les résultats déjà calculés ;
+- cache Firestore pour éviter les appels répétés et protéger les quotas gratuits.
 
-La probabilité estimée est ensuite construite à partir de la moyenne des bookmakers autres que Betclic, avec une réduction de confiance quand :
+Collections utilisées :
 
-- peu de sources proposent le marché ;
-- les bookmakers divergent ;
-- les données sont anciennes ;
-- la cote est élevée et donc plus volatile.
+- `/cloud_results/{eventId}` : résultats préparés par GitHub Actions ;
+- `/cloud_diagnostics/current` : état du dernier job ;
+- `/shared_results/{eventId}` : résultats collaboratifs légers envoyés par les téléphones.
 
-Une value potentielle existe lorsque la probabilité de consensus dépasse suffisamment la probabilité implicite Betclic et que l'espérance `probabilité × cote - 1` est positive.
+## Web app
 
-## Limites transparentes
+Le dossier `web/` contient une version web légère pour consultation PC. Elle utilise les mêmes principes d’affichage : accueil, live, sports, diagnostics et données cloud quand elles sont disponibles.
 
-- Le flux `upcoming` du fournisseur retourne les événements les plus proches, pas l'intégralité du catalogue Betclic.
-- La version 2 analyse d'abord le marché **vainqueur / h2h**. Les handicaps, totaux et props seront ajoutés ensuite.
-- Betclic peut être absent temporairement de certains événements ou sports dans la réponse du fournisseur.
-- Le consensus des cotes ne connaît pas à lui seul les blessures, compositions ou actualités. Ces sources devront être intégrées séparément et légalement.
-- Une prédiction de marché n'est jamais une certitude sportive.
+## Générer l’APK
 
-## Architecture
-
-- `data/remote/` : client Retrofit de The Odds API ;
-- `sync/` : actualisation périodique WorkManager ;
-- `domain/AutomaticPredictionEngine.kt` : retrait de marge, consensus, value et scoring ;
-- `data/local/` : Room pour les prédictions automatiques et le suivi ;
-- `data/` : repositories et préférences DataStore ;
-- `ui/` : écrans Jetpack Compose et design system sombre.
-
-## Générer l'APK debug
-
-Prérequis : JDK 17 et Android SDK 35.
+Prérequis : JDK 17 et Android SDK.
 
 ```powershell
-$env:JAVA_HOME = 'C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot'
-$env:ANDROID_HOME = "$env:LOCALAPPDATA\Android\Sdk"
-.\gradlew.bat testDebugUnitTest lintDebug assembleDebug
+.\gradlew.bat testDebugUnitTest lintDebug exportVersionedApk
 ```
 
-Chemin Gradle :
+APK exportée :
 
 ```text
-app/build/outputs/apk/debug/app-debug.apk
+output/apk/BetValueAnalyzer-v<versionCode>.apk
 ```
 
-Copie prête à installer :
+## Validation attendue
 
-```text
-output/apk/BetValueAnalyzer-v3.apk
-```
+- `testDebugUnitTest` ;
+- `lintDebug` ;
+- syntaxe Node du cloud job ;
+- diagnostic Firebase si quota disponible ;
+- APK versionnée générée seulement après les vérifications.
 
-## Installer sur Android
+## Secrets à ne jamais committer
 
-1. Transférer `output/apk/BetValueAnalyzer-v3.apk` sur le téléphone.
-2. Ouvrir le fichier.
-3. Autoriser ponctuellement l'installation depuis cette source si Android le demande.
-4. Installer et lancer **BetValue Analyzer**.
+- `FIREBASE_SERVICE_ACCOUNT_JSON`
+- `FIREBASE_PROJECT_ID`
+- `GEMINI_API_KEY`
+- `GROQ_API_KEY`
+- `MISTRAL_API_KEY`
+- `OPENROUTER_API_KEY`
 
-Avec ADB :
-
-```powershell
-& "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe" install -r "output\apk\BetValueAnalyzer-v3.apk"
-```
-
-## Version release signable
-
-Le projet ne contient aucune clé privée. Construire d'abord l'APK release :
-
-```powershell
-.\gradlew.bat assembleRelease
-```
-
-Fichier obtenu :
-
-```text
-app/build/outputs/apk/release/app-release-unsigned.apk
-```
-
-Créer ensuite une clé privée locale avec `keytool`, puis signer avec `apksigner`. Ne jamais committer la clé ou son mot de passe.
-
-## Validation
-
-- tests unitaires du moteur manuel et du moteur de consensus ;
-- compilation de l'APK de test instrumenté ;
-- lint Android ;
-- APK debug signé et vérifiable ;
-- build release minifié ;
-- migration Room 1 → 2 préservant l'historique ;
-- aucune clé API ni aucun secret inclus dans le dépôt.
+Ces secrets doivent rester dans GitHub Secrets ou dans l’environnement de build sécurisé.

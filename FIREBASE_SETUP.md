@@ -2,31 +2,26 @@
 
 Le code Android est branché sur le projet Firebase `betvalue-analyzer` via `app/google-services.json`.
 
-État attendu :
+## État attendu Firebase
 
-- Authentication anonyme : active.
-- Cloud Firestore : base `(default)` créée en `eur3 (Europe)`.
-- Règles Firestore : lecture Android autorisée sur `/shared_results`, `/cloud_results` et `/cloud_diagnostics`.
-- GitHub Actions : écriture serveur sur `/cloud_results/{eventId}` et `/cloud_diagnostics/current` via compte de service.
+- Authentication anonyme activée.
+- Cloud Firestore activé sur la base `(default)`.
+- Règles Firestore déployées depuis `firestore.rules`.
+- GitHub Actions autorisé à écrire via un compte de service.
 
 Collections :
 
-- `/shared_results/{eventId}` : résultats collaboratifs envoyés par les téléphones.
-- `/cloud_results/{eventId}` : résultats préparés automatiquement par GitHub Actions.
-- `/cloud_diagnostics/current` : dernière exécution du job GitHub Actions.
+- `/shared_results/{eventId}` : résultats collaboratifs envoyés par Android.
+- `/cloud_results/{eventId}` : événements, pronostics et analyses préparés par GitHub Actions.
+- `/cloud_diagnostics/current` : dernier état du job cloud, sources, erreurs, quota et diagnostic IA.
 
-Pour que le cloud collaboratif fonctionne réellement sur les téléphones :
-
-1. Dans Firebase Console, ouvrir le projet `betvalue-analyzer`.
-2. Authentication > Sign-in method > activer `Anonymous`.
-3. Firestore Database > créer/activer la base Firestore en mode production.
-4. Déployer les règles locales :
+## Déploiement règles
 
 ```powershell
 firebase deploy --only firestore:rules --project betvalue-analyzer
 ```
 
-Si la commande `firebase` n’existe pas :
+Si la CLI Firebase manque :
 
 ```powershell
 npm install -g firebase-tools
@@ -34,43 +29,40 @@ firebase login
 firebase deploy --only firestore:rules --project betvalue-analyzer
 ```
 
-## GitHub Actions gratuit, sans Cloud Functions
+## Secrets GitHub Actions
 
-Le dossier `cloud-job/` contient le job Node.js lancé par `.github/workflows/cloud-sports-job.yml`.
-
-Il tourne 4 fois par jour via GitHub Actions :
-
-- matin ;
-- midi ;
-- fin d’après-midi ;
-- soir.
-
-Secrets GitHub à créer dans `Settings > Secrets and variables > Actions` :
+À créer dans `Settings > Secrets and variables > Actions` :
 
 - `FIREBASE_PROJECT_ID` : `betvalue-analyzer`
-- `FIREBASE_SERVICE_ACCOUNT_JSON` : JSON complet du compte de service Firebase, idéalement encodé en base64.
+- `FIREBASE_SERVICE_ACCOUNT_JSON` : JSON complet du compte de service Firebase, brut ou base64.
 
-Le secret `FIREBASE_SERVICE_ACCOUNT_JSON` ne doit jamais être commité dans le code.
+Secrets IA gratuits optionnels :
 
-Pour générer ce JSON :
+- `GEMINI_API_KEY`
+- `GROQ_API_KEY`
+- `MISTRAL_API_KEY` si `MISTRAL_FREE_ENABLED=1`
+- `OPENROUTER_API_KEY` si `OPENROUTER_FREE_MODEL` pointe vers un modèle `:free`
 
-1. Firebase Console > Project settings > Service accounts.
-2. Cliquer sur `Generate new private key`.
-3. Copier le JSON dans GitHub Secret, ou l’encoder en base64 puis coller le résultat.
+Ne jamais committer ces secrets.
 
-Vérification après un run GitHub Actions :
+## Couche IA gratuite
 
-- `cloud_diagnostics/current.status` doit valoir `success`.
-- `cloud_diagnostics/current.eventsFound` doit être supérieur à 0.
-- `cloud_diagnostics/current.resultsWritten` doit être supérieur à 0.
-- `cloud_diagnostics/current.eventsBySport` permet de voir sport par sport ce qui est remonté.
+L’APK ne contient aucune clé. GitHub Actions peut enrichir les événements avec des modèles gratuits, stocker une analyse fusionnée dans Firestore, puis Android l’affiche sous “Analyse IA approfondie”.
 
-Firebase reste compatible avec le plan gratuit Spark : pas de Cloud Functions, pas de serveur, pas besoin de PC allumé. Attention seulement aux quotas gratuits Firestore si le volume devient énorme.
+Si aucun modèle gratuit n’est configuré, si un quota est atteint ou si Firestore refuse temporairement une lecture/écriture, l’application continue avec le cache et le moteur local.
 
-Diagnostic rapide depuis ce dossier :
+## Diagnostic rapide
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\Test-FirebaseCloud.ps1
 ```
 
-L’application reste tolérante aux pannes : si GitHub Actions, Auth, Firestore ou App Check ne répondent pas, elle continue avec ses données locales et écrit l’erreur dans Réglages > Cloud collaboratif.
+À vérifier après un run GitHub Actions :
+
+- `cloud_diagnostics/current.status = success`
+- `cloud_diagnostics/current.eventsFound > 0`
+- `cloud_diagnostics/current.resultsWritten > 0`
+- `cloud_diagnostics/current.aiPaidDisabled` contient les fournisseurs payants désactivés
+- `cloud_diagnostics/current.aiFreeEnabled` indique les fournisseurs gratuits réellement configurés
+
+Le plan Spark gratuit peut atteindre ses quotas Firestore. Dans ce cas l’erreur doit apparaître dans Réglages, sans bloquer l’application.

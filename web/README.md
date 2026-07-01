@@ -24,6 +24,8 @@ La WebApp lit Firestore en anonyme :
 - `shared_results`
 - `cloud_diagnostics/current`
 
+Elle affiche aussi `aiAnalysis` et `aiDiagnostic` quand le job GitHub Actions a produit une analyse multi‑IA.
+
 Si Firebase refuse ou n'a aucune donnée exploitable, l'interface passe en aperçu local pour ne pas afficher un écran vide.
 
 ## Publication gratuite
