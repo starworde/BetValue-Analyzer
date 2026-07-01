@@ -162,18 +162,23 @@ main().catch(async (error) => {
 });
 
 async function main() {
+  console.log("[cloud] collecte événements publics…");
   const events = (await collectEvents()).filter((event) => !isRemovedSport(event.sport));
   const eventsById = new Map(events.map((event) => [event.eventId, event]));
   diagnostics.eventsFound = events.length;
   diagnostics.eventsBySport = countBy(events, (event) => event.sport);
   diagnostics.sportsWithoutEvents = CONFIGURED_SPORTS.filter((sport) => !diagnostics.eventsBySport[sport]);
+  console.log(`[cloud] événements collectés: ${events.length}`);
+  console.log("[cloud] collecte news/contexte récent…");
   const newsByEventId = await collectNewsContexts(events);
+  console.log(`[cloud] news analysées: ${diagnostics.newsChecked}, avec signaux: ${diagnostics.newsWithSignals}`);
 
   const baseResults = events
     .map((event) => buildCloudResult(event, newsByEventId.get(event.eventId)))
     .filter(Boolean)
     .sort((a, b) => a.eventDate - b.eventDate || b.confidenceScore - a.confidenceScore)
     .slice(0, MAX_RESULTS_TO_WRITE);
+  console.log(`[cloud] résultats préparés avant IA: ${baseResults.length}`);
 
   if (process.env.DRY_RUN === "1") {
     const results = await enrichResultsWithMultiAi({
@@ -222,6 +227,7 @@ async function main() {
   }
 
   const db = await initializeFirestore();
+  console.log("[cloud] enrichissement Analyste IA…");
   const results = await enrichResultsWithMultiAi({
     results: baseResults,
     eventsById,
@@ -231,10 +237,14 @@ async function main() {
   });
   diagnostics.resultsPrepared = results.length;
   diagnostics.resultsBySport = countBy(results, (result) => result.sport);
+  console.log(`[cloud] IA: appelées=${diagnostics.aiCalled}, réponses=${diagnostics.aiResponded}, cache=${diagnostics.aiCacheHits}, pré-analyses=${diagnostics.aiFallbackUsed}`);
   try {
+    console.log("[cloud] nettoyage sports retirés…");
     await deleteRemovedSports(db);
+    console.log("[cloud] écriture Firestore cloud_results…");
     const written = await writeCloudResults(db, results);
     diagnostics.resultsWritten = written;
+    console.log(`[cloud] résultats écrits: ${written}`);
     await writeDiagnostic(db, { status: "success" });
   } catch (error) {
     const message = compactText(error?.stack || error?.message || String(error), 1800);

@@ -68,9 +68,11 @@ export async function enrichResultsWithMultiAi({
 
   const providers = configuredFreeProviders();
   const targets = selectAiTargets(results, eventsById, diagnostics.aiMode, providers.length > 0);
+  console.log(`[ai] cibles=${targets.length}, fournisseurs=${providers.map((provider) => provider.label).join(", ") || "aucun"}`);
   const targetIds = new Set(targets.map((result) => result.eventId));
   const cached = db ? await loadAiCache(db, targets, diagnostics) : new Map();
   const output = [];
+  let targetIndex = 0;
 
   for (const result of results) {
     const event = eventsById.get(result.eventId);
@@ -79,10 +81,12 @@ export async function enrichResultsWithMultiAi({
       output.push(result);
       continue;
     }
+    targetIndex += 1;
 
     const cacheHit = cached.get(result.eventId);
     if (cacheHit) {
       diagnostics.aiCacheHits += 1;
+      console.log(`[ai] ${targetIndex}/${targets.length} cache ${compactAiText(result.eventName || result.eventId, 90)}`);
       output.push({
         ...result,
         aiAnalysis: cacheHit.aiAnalysis,
@@ -93,6 +97,7 @@ export async function enrichResultsWithMultiAi({
 
     if (providers.length === 0) {
       diagnostics.aiFallbackUsed += 1;
+      console.log(`[ai] ${targetIndex}/${targets.length} pré-analyse locale ${compactAiText(result.eventName || result.eventId, 90)}`);
       output.push(applyAiBundle(result, buildLocalAiFallback({
         result,
         event,
@@ -106,6 +111,7 @@ export async function enrichResultsWithMultiAi({
 
     const dossier = buildAiInputDossier(result, event, newsContext);
     const selectedProviders = selectProvidersForMode(providers, diagnostics.aiMode, result, event);
+    console.log(`[ai] ${targetIndex}/${targets.length} appel ${selectedProviders.map((provider) => provider.label).join(" + ")} · ${compactAiText(result.eventName || result.eventId, 90)}`);
     diagnostics.aiCalled += selectedProviders.length;
     const startedAt = Date.now();
     const providerResponses = [];
@@ -131,6 +137,7 @@ export async function enrichResultsWithMultiAi({
 
     if (providerResponses.length === 0) {
       diagnostics.aiFallbackUsed += 1;
+      console.log(`[ai] ${targetIndex}/${targets.length} aucune réponse IA, pré-analyse locale`);
       output.push(applyAiBundle(result, buildLocalAiFallback({
         result,
         event,
@@ -156,6 +163,7 @@ export async function enrichResultsWithMultiAi({
       called: selectedProviders,
     });
     if (providerResponses.length >= 2) diagnostics.aiFusionCount += 1;
+    console.log(`[ai] ${targetIndex}/${targets.length} réponse(s) IA=${providerResponses.length}`);
     output.push(applyAiBundle(result, fused));
   }
 
