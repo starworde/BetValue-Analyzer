@@ -8,7 +8,8 @@ Il ne remplace pas l’analyse locale Android : il prémâche les dossiers lourd
 
 - `/cloud_results/{eventId}` : événements et analyses préparés automatiquement ;
 - `/cloud_diagnostics/current` : état du dernier job, sources, erreurs, quotas et diagnostic IA ;
-- `/shared_results/{eventId}` : résultats collaboratifs légers envoyés par les téléphones.
+- `/shared_results/{eventId}` : résultats collaboratifs légers envoyés par les téléphones ;
+- `/ai_requests/{requestId}` : demandes de priorité IA créées par l’app pour les sports/compétitions favoris.
 
 ## Secrets obligatoires
 
@@ -63,5 +64,6 @@ node --check multi-ai.mjs
 - `status`, `eventsFound`, `resultsWritten`, `eventsBySport`, `sportsWithoutEvents` ;
 - `aiConfigured`, `aiFreeEnabled`, `aiPaidDisabled`, `aiMode` ;
 - `aiCalled`, `aiResponded`, `aiErrors`, `aiCacheHits`, `aiFusionCount`, `aiFallbackUsed`, `aiQuotaReached`.
+- `aiRequestsRead`, `aiRequestsMatched`, `aiRequestsCompleted` pour contrôler l’effet des favoris sur la file IA.
 
 Si aucune IA cloud ne répond, le job peut encore écrire une pré‑analyse locale, mais l’application ne la présente pas comme une vraie réponse IA cloud.

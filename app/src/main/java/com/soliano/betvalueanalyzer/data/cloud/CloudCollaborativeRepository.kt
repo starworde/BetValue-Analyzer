@@ -96,6 +96,38 @@ class CloudCollaborativeRepository(
                             remoteDataSource.publishCalendarEvents(calendarPayload)
                         }.getOrDefault(0)
                     }
+                    val aiRequestPayload = (
+                        localPredictions.asSequence()
+                            .mapNotNull {
+                                it.toCloudAiAnalysisRequest(
+                                    appVersion = appVersion,
+                                    deviceId = deviceId,
+                                    now = now,
+                                    favoriteSports = settings.favoriteSports,
+                                    favoriteCompetitions = settings.favoriteCompetitions,
+                                )
+                            } +
+                            localEvents.asSequence()
+                                .mapNotNull {
+                                    it.toCloudAiAnalysisRequest(
+                                        appVersion = appVersion,
+                                        deviceId = deviceId,
+                                        now = now,
+                                        favoriteSports = settings.favoriteSports,
+                                        favoriteCompetitions = settings.favoriteCompetitions,
+                                    )
+                                }
+                        )
+                        .distinctBy { cloudAiRequestDocumentIdFor(deviceId, it.eventId) }
+                        .sortedByDescending { it.priority }
+                        .take(120)
+                        .toList()
+                    attemptedUpload += aiRequestPayload.size
+                    if (aiRequestPayload.isNotEmpty()) {
+                        uploaded += runCatching {
+                            remoteDataSource.publishAiAnalysisRequests(aiRequestPayload)
+                        }.getOrDefault(0)
+                    }
                     if (uploaded > 0) {
                         lastUpload = now
                     }
@@ -194,7 +226,8 @@ class CloudCollaborativeRepository(
             appendLine("githubActionFirestoreError=${jobDiagnostic.firestoreError}")
             appendLine("githubActionFirestoreCleanupError=${jobDiagnostic.firestoreCleanupError}")
             appendLine("githubActionError=${jobDiagnostic.error}")
-            appendLine("privacy=aucun favori, historique privé, log sensible ou donnée personnelle n'est envoyé")
+            appendLine("privacy=aucun historique privé, log sensible ou donnée personnelle n'est envoyé")
+            appendLine("favoritesPriority=les favoris créent seulement des demandes IA prioritaires sur des événements publics")
         }
         runCatching { file.writeText(text) }
         val report = CloudSyncReport(
@@ -218,6 +251,7 @@ interface CloudCollaborativeRemoteDataSource {
     fun anonymousDeviceId(): String
     fun publish(results: List<CloudSharedResult>): Int
     fun publishCalendarEvents(events: List<CloudSharedCalendarEvent>): Int
+    fun publishAiAnalysisRequests(requests: List<CloudAiAnalysisRequest>): Int
     fun fetchRecent(now: Long, limit: Long): List<CloudSharedResult>
     fun fetchDiagnostic(): CloudJobDiagnostic?
     fun fetchKnownDocumentIds(now: Long, limit: Long): Set<String>
@@ -289,6 +323,29 @@ class FirebaseCloudCollaborativeRemoteDataSource(
                 batch.set(
                     collection.document(cloudDocumentIdFor(event.eventId)),
                     event.toFirestoreMap(),
+                    SetOptions.merge(),
+                )
+            }
+            Tasks.await(batch.commit(), 15, TimeUnit.SECONDS)
+        }
+        return publishable.size
+    }
+
+    override fun publishAiAnalysisRequests(requests: List<CloudAiAnalysisRequest>): Int {
+        if (requests.isEmpty()) return 0
+        val firestore = firestoreOrNull() ?: return 0
+        val now = System.currentTimeMillis()
+        val publishable = requests
+            .filter { it.isCoherent(now) }
+            .distinctBy { cloudAiRequestDocumentIdFor(it.deviceId, it.eventId) }
+        if (publishable.isEmpty()) return 0
+        publishable.chunked(CLOUD_FIRESTORE_BATCH_LIMIT).forEach { chunk ->
+            val batch = firestore.batch()
+            chunk.forEach { request ->
+                batch.set(
+                    firestore.collection("ai_requests")
+                        .document(cloudAiRequestDocumentIdFor(request.deviceId, request.eventId)),
+                    request.toFirestoreMap(),
                     SetOptions.merge(),
                 )
             }

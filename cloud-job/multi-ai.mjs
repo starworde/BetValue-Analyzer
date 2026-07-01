@@ -1,5 +1,6 @@
 const AI_CACHE_TTL_MS = Number.parseInt(process.env.AI_CACHE_TTL_HOURS ?? "12", 10) * 60 * 60 * 1000;
 const MAX_AI_EVENTS = Number.parseInt(process.env.MAX_AI_EVENTS ?? "18", 10);
+const AI_TARGET_POOL_SIZE = Number.parseInt(process.env.AI_TARGET_POOL_SIZE ?? String(Math.max(MAX_AI_EVENTS * 8, 120)), 10);
 const AI_HTTP_TIMEOUT_MS = Number.parseInt(process.env.AI_HTTP_TIMEOUT_MS ?? "22000", 10);
 const MAX_AI_FIELD = 520;
 
@@ -67,26 +68,28 @@ export async function enrichResultsWithMultiAi({
   diagnostics.aiMode = providerState.mode;
 
   const providers = configuredFreeProviders();
-  const targets = selectAiTargets(results, eventsById, diagnostics.aiMode, providers.length > 0);
-  console.log(`[ai] cibles=${targets.length}, fournisseurs=${providers.map((provider) => provider.label).join(", ") || "aucun"}`);
+  const aiRequests = db ? await loadAiRequests(db, diagnostics) : [];
+  const aiBudget = providers.length > 0 ? MAX_AI_EVENTS : Math.min(MAX_AI_EVENTS, 60);
+  const candidates = selectAiTargets(results, eventsById, diagnostics.aiMode, providers.length > 0, AI_TARGET_POOL_SIZE, aiRequests);
+  diagnostics.aiRequestsMatched = candidates.filter((result) => findAiRequestForResult(result, eventsById.get(result.eventId), aiRequests)).length;
+  const cached = db ? await loadAiCache(db, candidates, diagnostics) : new Map();
+  const targets = candidates
+    .filter((result) => !cached.has(result.eventId))
+    .slice(0, aiBudget);
+  console.log(`[ai] candidates=${candidates.length}, nouvelles=${targets.length}, cache=${cached.size}, fournisseurs=${providers.map((provider) => provider.label).join(", ") || "aucun"}`);
   const targetIds = new Set(targets.map((result) => result.eventId));
-  const cached = db ? await loadAiCache(db, targets, diagnostics) : new Map();
   const output = [];
+  const fulfilledRequestIds = new Set();
   let targetIndex = 0;
 
   for (const result of results) {
     const event = eventsById.get(result.eventId);
     const newsContext = newsByEventId.get(result.eventId);
-    if (!targetIds.has(result.eventId)) {
-      output.push(result);
-      continue;
-    }
-    targetIndex += 1;
-
+    const aiRequest = findAiRequestForResult(result, event, aiRequests);
     const cacheHit = cached.get(result.eventId);
     if (cacheHit) {
       diagnostics.aiCacheHits += 1;
-      console.log(`[ai] ${targetIndex}/${targets.length} cache ${compactAiText(result.eventName || result.eventId, 90)}`);
+      if (aiRequest && isUsableExternalAiCache(cacheHit.aiAnalysis)) fulfilledRequestIds.add(aiRequest.id);
       output.push({
         ...result,
         aiAnalysis: cacheHit.aiAnalysis,
@@ -94,6 +97,11 @@ export async function enrichResultsWithMultiAi({
       });
       continue;
     }
+    if (!targetIds.has(result.eventId)) {
+      output.push(result);
+      continue;
+    }
+    targetIndex += 1;
 
     if (providers.length === 0) {
       diagnostics.aiFallbackUsed += 1;
@@ -164,7 +172,13 @@ export async function enrichResultsWithMultiAi({
     });
     if (providerResponses.length >= 2) diagnostics.aiFusionCount += 1;
     console.log(`[ai] ${targetIndex}/${targets.length} réponse(s) IA=${providerResponses.length}`);
-    output.push(applyAiBundle(result, fused));
+    const enriched = applyAiBundle(result, fused);
+    if (aiRequest && isUsableExternalAiCache(enriched.aiAnalysis)) fulfilledRequestIds.add(aiRequest.id);
+    output.push(enriched);
+  }
+
+  if (db && fulfilledRequestIds.size > 0) {
+    await markAiRequestsDone(db, fulfilledRequestIds, diagnostics);
   }
 
   return output;
@@ -295,18 +309,27 @@ function selectProvidersForMode(providers, mode, result) {
   return fragile ? providers.slice(0, Math.min(2, providers.length)) : providers.slice(0, 1);
 }
 
-function selectAiTargets(results, eventsById, mode, hasProviders) {
-  const hardLimit = hasProviders ? MAX_AI_EVENTS : Math.min(MAX_AI_EVENTS, 60);
+function selectAiTargets(results, eventsById, mode, hasProviders, limit = null, aiRequests = []) {
+  const hardLimit = limit ?? (hasProviders ? MAX_AI_EVENTS : Math.min(MAX_AI_EVENTS, 60));
   const all = results
-    .map((result) => ({ result, score: aiPriorityScore(result, eventsById.get(result.eventId), mode) }))
+    .map((result) => {
+      const event = eventsById.get(result.eventId);
+      const request = findAiRequestForResult(result, event, aiRequests);
+      return { result, score: aiPriorityScore(result, event, mode, request) };
+    })
     .sort((a, b) => b.score - a.score || a.result.eventDate - b.result.eventDate)
     .slice(0, hardLimit)
     .map((entry) => entry.result);
   return all;
 }
 
-function aiPriorityScore(result, event, mode) {
+function aiPriorityScore(result, event, mode, aiRequest = null) {
   let score = 0;
+  if (aiRequest) {
+    const requestPriority = Number(aiRequest.priority || 0);
+    score += 160 + Math.min(120, Math.max(0, requestPriority));
+    if (String(aiRequest.reason || "").includes("competition")) score += 30;
+  }
   const startsInHours = (result.eventDate - Date.now()) / (60 * 60 * 1000);
   if (startsInHours >= -2 && startsInHours <= 72) score += 35;
   if (startsInHours > 72 && startsInHours <= 14 * 24) score += 16;
@@ -317,6 +340,95 @@ function aiPriorityScore(result, event, mode) {
   if (event?.rawStats) score += 4;
   if (mode === "renforce" || mode === "complet") score += 8;
   return score;
+}
+
+async function loadAiRequests(db, diagnostics) {
+  try {
+    const now = Date.now();
+    const snapshot = await db.collection("ai_requests")
+      .where("expiresAt", ">", now)
+      .limit(300)
+      .get();
+    const requests = snapshot.docs
+      .map((doc) => ({ id: doc.id, ...doc.data() }))
+      .filter((request) => request.status === "pending")
+      .filter((request) => String(request.eventId || "").trim())
+      .filter((request) => Number(request.eventDate || 0) >= now - 48 * 60 * 60 * 1000)
+      .sort((a, b) => Number(b.priority || 0) - Number(a.priority || 0));
+    diagnostics.aiRequestsRead = requests.length;
+    return requests;
+  } catch (error) {
+    diagnostics.aiRequestsRead = 0;
+    diagnostics.aiErrors.push(`ai_requests:${compactAiText(error?.message || String(error), 160)}`);
+    return [];
+  }
+}
+
+async function markAiRequestsDone(db, requestIds, diagnostics) {
+  const ids = Array.from(requestIds).filter(Boolean);
+  if (ids.length === 0) return 0;
+  let completed = 0;
+  for (const chunk of chunked(ids, 450)) {
+    const batch = db.batch();
+    for (const id of chunk) {
+      batch.set(db.collection("ai_requests").doc(id), {
+        status: "done",
+        completedAt: Date.now(),
+      }, { merge: true });
+    }
+    await batch.commit();
+    completed += chunk.length;
+  }
+  diagnostics.aiRequestsCompleted = Number(diagnostics.aiRequestsCompleted || 0) + completed;
+  return completed;
+}
+
+function findAiRequestForResult(result, event, aiRequests = []) {
+  if (!aiRequests.length) return null;
+  const exact = aiRequests.find((request) => String(request.eventId || "") === String(result.eventId || ""));
+  if (exact) return exact;
+  return aiRequests.find((request) => aiRequestMatchesResult(request, result, event)) || null;
+}
+
+function aiRequestMatchesResult(request, result, event) {
+  if (textKey(request.sport) !== textKey(result.sport || event?.sport)) return false;
+  const requestDate = Number(request.eventDate || 0);
+  const resultDate = Number(result.eventDate || event?.eventDate || 0);
+  if (!requestDate || !resultDate || Math.abs(requestDate - resultDate) > 90 * 60 * 1000) return false;
+  if (!textCompatible(request.competition, result.competition || event?.competition)) return false;
+  const requestPair = participantPairKey([request.participantA, request.participantB]);
+  const resultPair = participantPairKey([result.homeTeam || event?.homeTeam, result.awayTeam || event?.awayTeam]);
+  if (requestPair && resultPair) return requestPair === resultPair;
+  return textCompatible(request.eventName, result.eventName || event?.eventName);
+}
+
+function participantPairKey(values) {
+  return values
+    .map((value) => textKey(value))
+    .filter(Boolean)
+    .sort()
+    .join("|");
+}
+
+function textCompatible(left, right) {
+  const a = textKey(left);
+  const b = textKey(right);
+  if (!a || !b) return true;
+  if (a === b || a.includes(b) || b.includes(a)) return true;
+  const leftTokens = new Set(a.split(" ").filter((token) => token.length >= 4));
+  const rightTokens = new Set(b.split(" ").filter((token) => token.length >= 4));
+  let overlap = 0;
+  for (const token of leftTokens) if (rightTokens.has(token)) overlap += 1;
+  return overlap >= 2;
+}
+
+function textKey(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 }
 
 async function loadAiCache(db, targets, diagnostics) {
@@ -695,7 +807,7 @@ function parseJsonObject(value) {
   }
 }
 
-function isUsableExternalAiCache(value) {
+export function isUsableExternalAiCache(value) {
   try {
     const parsed = typeof value === "string" ? JSON.parse(value) : value;
     const source = String(parsed?.source || "");

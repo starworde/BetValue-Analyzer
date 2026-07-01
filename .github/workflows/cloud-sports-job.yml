@@ -7,6 +7,9 @@ on:
       - main
     paths:
       - "cloud-job/**"
+      - "firestore.rules"
+      - "firebase.json"
+      - ".firebaserc"
       - ".github/workflows/cloud-sports-job.yml"
   schedule:
     # UTC. Check automatique toutes les 2 heures avec cache Firestore/IA pour rester compatible quota gratuit.
@@ -37,6 +40,16 @@ jobs:
       - name: Install dependencies
         run: npm install --omit=dev
 
+      - name: Deploy Firestore rules
+        working-directory: .
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-service-account.json
+        run: |
+          node -e "const fs=require('fs'); const raw=process.env.FIREBASE_SERVICE_ACCOUNT_JSON; if(!raw) throw new Error('Missing FIREBASE_SERVICE_ACCOUNT_JSON'); const json=raw.trim().startsWith('{') ? raw : Buffer.from(raw.trim(),'base64').toString('utf8'); fs.writeFileSync(process.env.GOOGLE_APPLICATION_CREDENTIALS, json);"
+          npx -y firebase-tools@13 deploy --only firestore:rules --project "$FIREBASE_PROJECT_ID" --non-interactive
+
       - name: Run cloud sports job
         env:
           FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
@@ -45,7 +58,8 @@ jobs:
           MAX_RESULTS_TO_WRITE: "900"
           MAX_REMOVED_SPORT_DELETES: "120"
           AI_MODE: "automatic"
-          MAX_AI_EVENTS: "8"
+          MAX_AI_EVENTS: "32"
+          AI_TARGET_POOL_SIZE: "320"
           AI_CACHE_TTL_HOURS: "12"
           AI_HTTP_TIMEOUT_MS: "12000"
           GITHUB_TOKEN: ${{ github.token }}

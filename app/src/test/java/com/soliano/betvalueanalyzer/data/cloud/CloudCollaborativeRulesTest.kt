@@ -98,6 +98,102 @@ class CloudCollaborativeRulesTest {
     }
 
     @Test
+    fun `local plus recent sans IA importe uniquement la vraie IA cloud`() {
+        val local = prediction().copy(
+            sourceLastUpdate = now,
+            statSummary = "Stats locales recentes a conserver",
+            sourceName = "ESPN local recent",
+            aiAnalysis = "",
+            aiDiagnostic = "",
+            aiGeneratedAt = 0L,
+        )
+        val cloud = prediction().copy(
+            sourceLastUpdate = now - 5_000L,
+            statSummary = "Stats cloud anciennes a ne pas ecraser",
+            aiAnalysis = validAiAnalysis("Lecture IA cloud importee"),
+            aiDiagnostic = """{"iaRepondues":["GitHub Models via Actions"]}""",
+            aiGeneratedAt = now - 4_000L,
+        ).toCloudSharedResult("5.2.0", "github-actions", now)!!
+
+        val merge = mergeCloudResults(listOf(local), listOf(cloud), now)
+        val merged = merge.predictionsToUpsert.single()
+
+        assertEquals(local.id, merged.id)
+        assertEquals("Stats locales recentes a conserver", merged.statSummary)
+        assertEquals("ESPN local recent", merged.sourceName)
+        assertTrue(merged.aiAnalysis.contains("Lecture IA cloud importee"))
+        assertTrue(merged.aiAnalysis.hasValidCloudAiAnalysis())
+    }
+
+    @Test
+    fun `eventId different mais meme match date rattache IA au local`() {
+        val local = prediction().copy(
+            eventId = "local-provider:abc",
+            sourceLastUpdate = now,
+            aiAnalysis = "",
+            aiDiagnostic = "",
+            aiGeneratedAt = 0L,
+        )
+        val cloud = prediction().copy(
+            eventId = "espn:tennis:atp:188-2026:177378",
+            sourceLastUpdate = now - 5_000L,
+            aiAnalysis = validAiAnalysis("IA rattachee malgre eventId different"),
+            aiDiagnostic = """{"iaRepondues":["GitHub Models via Actions"]}""",
+            aiGeneratedAt = now - 4_000L,
+        ).toCloudSharedResult("5.2.0", "github-actions", now)!!
+
+        val merge = mergeCloudResults(listOf(local), listOf(cloud), now)
+        val merged = merge.predictionsToUpsert.single()
+
+        assertEquals(local.id, merged.id)
+        assertEquals("local-provider:abc", merged.eventId)
+        assertTrue(merged.aiAnalysis.contains("IA rattachee"))
+    }
+
+    @Test
+    fun `validation IA refuse fallback provider zero et JSON invalide`() {
+        assertTrue(validAiAnalysis("Vraie IA").hasValidCloudAiAnalysis())
+        assertFalse("""{"source":"local-preanalysis","providerCount":1,"lectureRapide":"fallback"}""".hasValidCloudAiAnalysis())
+        assertFalse("""{"source":"multi-ai-cloud","providerCount":0,"lectureRapide":"zero"}""".hasValidCloudAiAnalysis())
+        assertFalse("""{pas json}""".hasValidCloudAiAnalysis())
+    }
+
+    @Test
+    fun `favori cree une demande IA prioritaire sans exposer la liste des favoris`() {
+        val request = prediction().copy(aiAnalysis = "", aiGeneratedAt = 0L).toCloudAiAnalysisRequest(
+            appVersion = "5.2.0",
+            deviceId = "anon-device",
+            now = now,
+            favoriteSports = setOf("soccer"),
+            favoriteCompetitions = setOf("soccer:coupe-du-monde-fifa"),
+        )
+
+        assertNotNull(request)
+        assertTrue(request!!.priority > 100)
+        assertEquals("competition_and_sport_priority", request.reason)
+        val map = request.toFirestoreMap()
+        assertEquals("ai_request", map["documentType"])
+        assertEquals("pending", map["status"])
+        val keys = map.keys.joinToString("|").lowercase()
+        assertFalse(keys.contains("favorite"))
+        assertFalse(keys.contains("favori"))
+        assertFalse(keys.contains("history"))
+    }
+
+    @Test
+    fun `non favori ne cree pas de demande IA prioritaire`() {
+        val request = prediction().copy(aiAnalysis = "", aiGeneratedAt = 0L).toCloudAiAnalysisRequest(
+            appVersion = "5.2.0",
+            deviceId = "anon-device",
+            now = now,
+            favoriteSports = emptySet(),
+            favoriteCompetitions = emptySet(),
+        )
+
+        assertEquals(null, request)
+    }
+
+    @Test
     fun `aucune donnee personnelle nest envoyee`() {
         val keys = prediction().toCloudSharedResult("4.70.0", "anon-device", now)!!
             .toFirestoreMap()
@@ -255,10 +351,13 @@ class CloudCollaborativeRulesTest {
         sourceDetails = "ESPN public",
         contextInsights = "Aucun fait relevé",
         sourceAgreement = 78,
-        aiAnalysis = """{"source":"multi-ai-cloud","lectureRapide":"Argentine légèrement devant mais à vérifier.","scenarioPrincipal":"Argentine gagne court.","confianceIA":68}""",
+        aiAnalysis = validAiAnalysis("Argentine legerement devant mais a verifier."),
         aiDiagnostic = """{"iaGratuitesActivees":["Gemini free tier"],"iaRepondues":["Gemini free tier"],"coutEstime":"0 €"}""",
         aiGeneratedAt = now - 10_000L,
     )
+
+    private fun validAiAnalysis(lecture: String): String =
+        """{"source":"multi-ai-cloud","providerCount":1,"titreAnalyse":"Analyse IA test","lectureRapide":"$lecture","scenarioPrincipal":"Scenario test","confianceIA":68,"modeleUtilise":"GitHub Models via Actions"}"""
 
     private fun upcomingEvent(): UpcomingEventEntity = UpcomingEventEntity(
         id = "event-1",

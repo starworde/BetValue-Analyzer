@@ -1,9 +1,12 @@
 package com.soliano.betvalueanalyzer.data.cloud
 
+import com.google.gson.JsonObject
+import com.google.gson.JsonParser
 import com.soliano.betvalueanalyzer.data.local.PredictionEntity
 import com.soliano.betvalueanalyzer.data.local.UpcomingEventEntity
 import com.soliano.betvalueanalyzer.domain.RemovedSports
 import com.soliano.betvalueanalyzer.domain.competitionFavoriteKey
+import java.text.Normalizer
 import java.util.Locale
 import kotlin.math.abs
 
@@ -79,6 +82,25 @@ data class CloudSharedCalendarEvent(
     val updatedAt: Long,
     val expiresAt: Long,
     val analysisId: String,
+)
+
+data class CloudAiAnalysisRequest(
+    val eventId: String,
+    val sport: String,
+    val sportTitle: String,
+    val competitionKey: String,
+    val competition: String,
+    val eventName: String,
+    val eventDate: Long,
+    val participantA: String,
+    val participantB: String,
+    val priority: Int,
+    val reason: String,
+    val appVersion: String,
+    val deviceId: String,
+    val updatedAt: Long,
+    val expiresAt: Long,
+    val status: String = "pending",
 )
 
 data class CloudMergeResult(
@@ -261,6 +283,110 @@ fun UpcomingEventEntity.toCloudSharedCalendarEvent(
     ).takeIf { it.isCoherent(now) }
 }
 
+fun PredictionEntity.toCloudAiAnalysisRequest(
+    appVersion: String,
+    deviceId: String,
+    now: Long,
+    favoriteSports: Set<String>,
+    favoriteCompetitions: Set<String>,
+): CloudAiAnalysisRequest? {
+    val sport = sportKey.substringBefore('/').trim()
+    if (eventId.isBlank() || sport.isBlank() || competitionName.isBlank()) return null
+    if (!RemovedSports.isAllowedSportKey(sport)) return null
+    if (appVersion.isBlank() || deviceId.isBlank()) return null
+    if (commenceTime < now - MAX_EVENT_LOOKBACK_MS) return null
+    val competitionKey = competitionFavoriteKey(sport, competitionName)
+    val sportFavorite = sport in favoriteSports
+    val competitionFavorite = competitionKey in favoriteCompetitions
+    if (!sportFavorite && !competitionFavorite) return null
+    val alreadyFresh = aiAnalysis.hasValidCloudAiAnalysis() &&
+        aiGeneratedAt > 0L &&
+        now - aiGeneratedAt <= 12 * 60 * 60 * 1000L
+    if (alreadyFresh) return null
+    val startsInMinutes = (commenceTime - now) / 60_000L
+    val urgency = when {
+        startsInMinutes in -120..180 -> 35
+        startsInMinutes in 181..(72 * 60) -> 22
+        startsInMinutes in (72 * 60 + 1)..(14 * 24 * 60) -> 10
+        else -> 0
+    }
+    val favoriteWeight = (if (competitionFavorite) 90 else 0) + (if (sportFavorite) 55 else 0)
+    val event = listOf(homeTeam, awayTeam)
+        .filter { it.isNotBlank() }
+        .joinToString(" â€” ")
+        .ifBlank { competitionName }
+    return CloudAiAnalysisRequest(
+        eventId = eventId.trimCloudText(220),
+        sport = sport.trimCloudText(80),
+        sportTitle = sportTitle.ifBlank { sport }.trimCloudText(120),
+        competitionKey = competitionKey.trimCloudText(180),
+        competition = competitionName.trimCloudText(180),
+        eventName = event.trimCloudText(220),
+        eventDate = commenceTime,
+        participantA = homeTeam.trimCloudText(140),
+        participantB = awayTeam.trimCloudText(140),
+        priority = (favoriteWeight + urgency + confidenceScore.coerceIn(0, 100) / 10).coerceIn(1, 200),
+        reason = when {
+            competitionFavorite && sportFavorite -> "competition_and_sport_priority"
+            competitionFavorite -> "competition_priority"
+            else -> "sport_priority"
+        },
+        appVersion = appVersion.trimCloudText(40),
+        deviceId = deviceId.trimCloudText(80),
+        updatedAt = now,
+        expiresAt = if (commenceTime > now) commenceTime + MAX_EVENT_LOOKBACK_MS else now + 6 * 60 * 60 * 1000L,
+    ).takeIf { it.isCoherent(now) }
+}
+
+fun UpcomingEventEntity.toCloudAiAnalysisRequest(
+    appVersion: String,
+    deviceId: String,
+    now: Long,
+    favoriteSports: Set<String>,
+    favoriteCompetitions: Set<String>,
+): CloudAiAnalysisRequest? {
+    val sport = sportKey.substringBefore('/').trim()
+    if (id.isBlank() || sport.isBlank() || competitionName.isBlank()) return null
+    if (!RemovedSports.isAllowedSportKey(sport)) return null
+    if (appVersion.isBlank() || deviceId.isBlank()) return null
+    if (commenceTime < now - MAX_EVENT_LOOKBACK_MS) return null
+    val resolvedCompetitionKey = competitionKey.ifBlank { competitionFavoriteKey(sport, competitionName) }
+    val sportFavorite = sport in favoriteSports
+    val competitionFavorite = resolvedCompetitionKey in favoriteCompetitions
+    if (!sportFavorite && !competitionFavorite) return null
+    val startsInMinutes = (commenceTime - now) / 60_000L
+    val urgency = when {
+        startsInMinutes in -120..180 -> 35
+        startsInMinutes in 181..(72 * 60) -> 22
+        startsInMinutes in (72 * 60 + 1)..(14 * 24 * 60) -> 10
+        else -> 0
+    }
+    val compactEventName = eventName.ifBlank {
+        listOf(participantA, participantB).filter { it.isNotBlank() }.joinToString(" â€” ")
+    }.ifBlank { competitionName }
+    return CloudAiAnalysisRequest(
+        eventId = id.trimCloudText(220),
+        sport = sport.trimCloudText(80),
+        sportTitle = sportTitle.ifBlank { sport }.trimCloudText(120),
+        competitionKey = resolvedCompetitionKey.trimCloudText(180),
+        competition = competitionName.trimCloudText(180),
+        eventName = compactEventName.trimCloudText(220),
+        eventDate = commenceTime,
+        participantA = participantA.trimCloudText(140),
+        participantB = participantB.trimCloudText(140),
+        priority = ((if (competitionFavorite) 90 else 0) + (if (sportFavorite) 55 else 0) + urgency).coerceIn(1, 200),
+        reason = when {
+            competitionFavorite && sportFavorite -> "competition_and_sport_priority"
+            competitionFavorite -> "competition_priority"
+            else -> "sport_priority"
+        },
+        appVersion = appVersion.trimCloudText(40),
+        deviceId = deviceId.trimCloudText(80),
+        updatedAt = now,
+        expiresAt = if (commenceTime > now) commenceTime + MAX_EVENT_LOOKBACK_MS else now + 6 * 60 * 60 * 1000L,
+    ).takeIf { it.isCoherent(now) }
+}
+
 fun CloudSharedResult.isCoherent(now: Long): Boolean {
     if (eventId.isBlank() || sport.isBlank() || competition.isBlank() || eventName.isBlank()) return false
     if (!RemovedSports.isAllowedSportKey(sport)) return false
@@ -286,11 +412,37 @@ fun CloudSharedCalendarEvent.isCoherent(now: Long): Boolean {
     return toFirestoreMap().stringPayloadSize() <= MAX_DOCUMENT_CHARS
 }
 
+fun CloudAiAnalysisRequest.isCoherent(now: Long): Boolean {
+    if (eventId.isBlank() || sport.isBlank() || competition.isBlank() || eventName.isBlank()) return false
+    if (!RemovedSports.isAllowedSportKey(sport)) return false
+    if (eventDate <= 0L || updatedAt <= 0L || expiresAt <= 0L) return false
+    if (updatedAt > now + MAX_CLOCK_SKEW_MS) return false
+    if (updatedAt < now - MAX_CLOUD_RESULT_AGE_MS) return false
+    if (eventDate < now - MAX_EVENT_LOOKBACK_MS) return false
+    if (expiresAt <= now) return false
+    if (priority !in 1..200) return false
+    if (status != "pending") return false
+    return toFirestoreMap().stringPayloadSize() <= 3_800
+}
+
 fun CloudSharedResult.toPredictionEntity(local: PredictionEntity? = null): PredictionEntity {
     val source = if (sourceName.startsWith(CLOUD_SOURCE_PREFIX, ignoreCase = true)) {
         sourceName
     } else {
         "$CLOUD_SOURCE_PREFIX · ${sourceName.ifBlank { appVersion }}"
+    }
+    val validCloudAi = aiAnalysis.takeIf { it.hasValidCloudAiAnalysis() }.orEmpty()
+    val localValidAi = local?.aiAnalysis?.takeIf { it.hasValidCloudAiAnalysis() }.orEmpty()
+    val mergedAiAnalysis = validCloudAi.ifBlank { localValidAi }
+    val mergedAiDiagnostic = when {
+        validCloudAi.isNotBlank() -> aiDiagnostic
+        localValidAi.isNotBlank() -> local?.aiDiagnostic.orEmpty()
+        else -> ""
+    }
+    val mergedAiGeneratedAt = when {
+        validCloudAi.isNotBlank() -> aiGeneratedAt
+        localValidAi.isNotBlank() -> local?.aiGeneratedAt ?: 0L
+        else -> 0L
     }
     return PredictionEntity(
         id = predictionId.ifBlank { local?.id ?: "cloud:${cloudDocumentIdFor(eventId)}" },
@@ -328,9 +480,9 @@ fun CloudSharedResult.toPredictionEntity(local: PredictionEntity? = null): Predi
         sourceDetails = sourceDetails,
         contextInsights = contextInsights,
         sourceAgreement = sourceAgreement,
-        aiAnalysis = aiAnalysis,
-        aiDiagnostic = aiDiagnostic,
-        aiGeneratedAt = aiGeneratedAt,
+        aiAnalysis = mergedAiAnalysis,
+        aiDiagnostic = mergedAiDiagnostic,
+        aiGeneratedAt = mergedAiGeneratedAt,
     )
 }
 
@@ -376,9 +528,14 @@ fun mergeCloudResults(
         .sortedByDescending { it.updatedAt }
         .distinctBy { it.cloudIdentityKey() }
         .mapNotNull { cloud ->
-            val local = localsByEvent[cloud.cloudIdentityKey()]
-            if (shouldUseCloudResult(local, cloud, now)) cloud to cloud.toPredictionEntity(local) else null
+            val local = findMatchingLocalPrediction(localPredictions, localsByEvent, cloud)
+            when (cloudMergeMode(local, cloud, now)) {
+                CloudMergeMode.Full -> cloud to cloud.toPredictionEntity(local)
+                CloudMergeMode.AiOnly -> cloud to local!!.withCloudAiFrom(cloud)
+                CloudMergeMode.None -> null
+            }
         }
+        .distinctBy { it.second.id }
         .toList()
     val acceptedPredictions = acceptedClouds.map { it.second }
     val acceptedEvents = acceptedClouds.map { (cloud, prediction) ->
@@ -393,11 +550,43 @@ fun mergeCloudResults(
 }
 
 fun shouldUseCloudResult(local: PredictionEntity?, cloud: CloudSharedResult, now: Long): Boolean {
-    if (!cloud.isCoherent(now)) return false
-    if (local == null) return true
-    if (local.selection.isBlank() || local.market.isBlank()) return true
-    if (local.commenceTime < now - MAX_EVENT_LOOKBACK_MS) return true
-    return cloud.updatedAt > local.sourceLastUpdate
+    return cloudMergeMode(local, cloud, now) != CloudMergeMode.None
+}
+
+private enum class CloudMergeMode {
+    Full,
+    AiOnly,
+    None,
+}
+
+private fun cloudMergeMode(local: PredictionEntity?, cloud: CloudSharedResult, now: Long): CloudMergeMode {
+    if (!cloud.isCoherent(now)) return CloudMergeMode.None
+    if (local == null) return CloudMergeMode.Full
+    if (local.selection.isBlank() || local.market.isBlank()) return CloudMergeMode.Full
+    if (local.commenceTime < now - MAX_EVENT_LOOKBACK_MS) return CloudMergeMode.Full
+    if (cloud.updatedAt > local.sourceLastUpdate) return CloudMergeMode.Full
+    return if (cloud.shouldImportOnlyAiInto(local)) CloudMergeMode.AiOnly else CloudMergeMode.None
+}
+
+private fun CloudSharedResult.shouldImportOnlyAiInto(local: PredictionEntity): Boolean {
+    if (!aiAnalysis.hasValidCloudAiAnalysis()) return false
+    if (!local.aiAnalysis.hasValidCloudAiAnalysis()) return true
+    return aiGeneratedAt > local.aiGeneratedAt
+}
+
+private fun PredictionEntity.withCloudAiFrom(cloud: CloudSharedResult): PredictionEntity = copy(
+    aiAnalysis = cloud.aiAnalysis.takeIf { it.hasValidCloudAiAnalysis() }.orEmpty(),
+    aiDiagnostic = cloud.aiDiagnostic,
+    aiGeneratedAt = cloud.aiGeneratedAt,
+)
+
+private fun findMatchingLocalPrediction(
+    localPredictions: List<PredictionEntity>,
+    localsByEvent: Map<String, PredictionEntity>,
+    cloud: CloudSharedResult,
+): PredictionEntity? {
+    return localsByEvent[cloud.cloudIdentityKey()]
+        ?: localPredictions.firstOrNull { it.fuzzyMatches(cloud) }
 }
 
 fun CloudSharedResult.toFirestoreMap(): Map<String, Any> = linkedMapOf(
@@ -504,6 +693,26 @@ fun CloudSharedCalendarEvent.toFirestoreMap(): Map<String, Any> {
     )
 }
 
+fun CloudAiAnalysisRequest.toFirestoreMap(): Map<String, Any> = linkedMapOf(
+    "documentType" to "ai_request",
+    "eventId" to eventId,
+    "sport" to sport,
+    "sportTitle" to sportTitle,
+    "competitionKey" to competitionKey,
+    "competition" to competition,
+    "eventName" to eventName,
+    "eventDate" to eventDate,
+    "participantA" to participantA,
+    "participantB" to participantB,
+    "priority" to priority,
+    "reason" to reason,
+    "appVersion" to appVersion,
+    "deviceId" to deviceId,
+    "updatedAt" to updatedAt,
+    "expiresAt" to expiresAt,
+    "status" to status,
+)
+
 fun cloudSharedResultFromMap(map: Map<String, Any?>): CloudSharedResult? = runCatching {
     if (map.stringValue("documentType").equals("calendar_event", ignoreCase = true)) return@runCatching null
     CloudSharedResult(
@@ -592,6 +801,9 @@ fun cloudDocumentIdFor(eventId: String): String =
         .take(180)
         .ifBlank { "unknown-event" }
 
+fun cloudAiRequestDocumentIdFor(deviceId: String, eventId: String): String =
+    cloudDocumentIdFor("${deviceId.takeLast(36)}_$eventId")
+
 private fun PredictionEntity.cloudIdentityKey(): String =
     listOf(eventId, sportKey.substringBefore('/'), homeTeam, awayTeam, commenceTime.roundToMinute())
         .joinToString("|")
@@ -601,6 +813,65 @@ private fun CloudSharedResult.cloudIdentityKey(): String =
     listOf(eventId, sport, homeTeam, awayTeam, eventDate.roundToMinute())
         .joinToString("|")
         .lowercase(Locale.US)
+
+private fun PredictionEntity.fuzzyMatches(cloud: CloudSharedResult): Boolean {
+    if (!sportKey.substringBefore('/').cloudTextKey().equals(cloud.sport.cloudTextKey(), ignoreCase = true)) return false
+    if (abs(commenceTime - cloud.eventDate) > 45 * 60 * 1000L) return false
+    if (!competitionName.cloudCompatibleWith(cloud.competition)) return false
+    return participantPairKey() == cloud.participantPairKey()
+}
+
+private fun PredictionEntity.participantPairKey(): String =
+    listOf(homeTeam, awayTeam)
+        .map { it.cloudTextKey() }
+        .filter { it.isNotBlank() }
+        .sorted()
+        .joinToString("|")
+
+private fun CloudSharedResult.participantPairKey(): String =
+    listOf(homeTeam, awayTeam)
+        .map { it.cloudTextKey() }
+        .filter { it.isNotBlank() }
+        .sorted()
+        .joinToString("|")
+
+private fun String.cloudCompatibleWith(other: String): Boolean {
+    val left = cloudTextKey()
+    val right = other.cloudTextKey()
+    if (left.isBlank() || right.isBlank()) return true
+    if (left == right || left.contains(right) || right.contains(left)) return true
+    val leftTokens = left.split(' ').filter { it.length >= 4 }.toSet()
+    val rightTokens = right.split(' ').filter { it.length >= 4 }.toSet()
+    return leftTokens.intersect(rightTokens).size >= 2
+}
+
+private fun String.cloudTextKey(): String =
+    Normalizer.normalize(this, Normalizer.Form.NFD)
+        .replace(Regex("\\p{M}+"), "")
+        .lowercase(Locale.US)
+        .replace(Regex("[^a-z0-9]+"), " ")
+        .trim()
+
+internal fun String.hasValidCloudAiAnalysis(): Boolean = runCatching {
+    val parsed = JsonParser.parseString(this).takeIf { it.isJsonObject }?.asJsonObject ?: return@runCatching false
+    val source = parsed.aiText("source").cloudTextKey()
+    val providerCount = parsed.aiInt("providerCount")
+    providerCount > 0 &&
+        source.isNotBlank() &&
+        "fallback" !in source &&
+        "local preanalysis" !in source &&
+        "local" !in source
+}.getOrDefault(false)
+
+private fun JsonObject.aiText(key: String): String =
+    get(key)?.takeIf { it.isJsonPrimitive }?.asString.orEmpty()
+
+private fun JsonObject.aiInt(key: String): Int =
+    runCatching {
+        val element = get(key) ?: return 0
+        if (element.isJsonPrimitive && element.asJsonPrimitive.isNumber) element.asInt
+        else element.asString.filter(Char::isDigit).toIntOrNull() ?: 0
+    }.getOrDefault(0)
 
 private fun Long.roundToMinute(): Long = this / 60_000L
 

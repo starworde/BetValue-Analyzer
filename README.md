@@ -56,7 +56,8 @@ Collections utilisées :
 
 - `/cloud_results/{eventId}` : résultats préparés par GitHub Actions ;
 - `/cloud_diagnostics/current` : état du dernier job ;
-- `/shared_results/{eventId}` : résultats collaboratifs légers envoyés par les téléphones.
+- `/shared_results/{eventId}` : résultats collaboratifs légers envoyés par les téléphones ;
+- `/ai_requests/{requestId}` : priorités IA sur événements publics issus des favoris.
 
 ## Web app
 

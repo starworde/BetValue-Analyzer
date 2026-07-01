@@ -167,7 +167,7 @@ fun SettingsScreen(
                         Icon(Icons.Outlined.CloudSync, null, tint = Violet)
                         Column {
                             Text(t(language, "Cloud collaboratif", "Collaborative cloud", "Cloud colaborativa", "Kollaborative Cloud"), style = MaterialTheme.typography.titleMedium)
-                            Text(t(language, "Partage léger des résultats déjà calculés, sans favoris ni historique privé.", "Light sharing of already computed results, without favorites or private history.", "Comparte resultados ya calculados, sin favoritos ni historial privado.", "Leichtes Teilen bereits berechneter Ergebnisse, ohne Favoriten oder privaten Verlauf."), color = TextSecondary)
+                            Text(t(language, "Partage léger des résultats déjà calculés. Les favoris servent seulement à prioriser l’analyse IA, sans historique privé.", "Light sharing of already computed results. Favorites only prioritize AI analysis, without private history.", "Comparte resultados ya calculados. Los favoritos solo priorizan el análisis IA, sin historial privado.", "Leichtes Teilen bereits berechneter Ergebnisse. Favoriten priorisieren nur die KI-Analyse, ohne privaten Verlauf."), color = TextSecondary)
                         }
                     }
                     Switch(

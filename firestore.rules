@@ -25,8 +25,50 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /ai_requests/{requestId} {
+      allow read: if false;
+      allow create: if request.auth != null
+        && isValidAiRequest(request.resource.data)
+        && request.resource.data.deviceId == request.auth.uid;
+      allow update: if request.auth != null
+        && isValidAiRequest(request.resource.data)
+        && request.resource.data.deviceId == request.auth.uid
+        && request.resource.data.deviceId == resource.data.deviceId
+        && request.resource.data.eventId == resource.data.eventId
+        && request.resource.data.updatedAt >= resource.data.updatedAt;
+      allow delete: if false;
+    }
+
     function isValidSharedWrite(data) {
       return isValidSharedResult(data) || isValidSharedCalendarEvent(data);
+    }
+
+    function isValidAiRequest(data) {
+      return data.keys().hasAll(requiredAiRequestKeys())
+        && data.keys().hasOnly(allowedAiRequestKeys())
+        && data.documentType == 'ai_request'
+        && data.status == 'pending'
+        && data.reason in ['sport_priority', 'competition_priority', 'competition_and_sport_priority']
+        && isNonEmptyString(data.eventId, 220)
+        && isNonEmptyString(data.sport, 80)
+        && isNonEmptyString(data.competition, 180)
+        && isNonEmptyString(data.eventName, 220)
+        && isNonEmptyString(data.appVersion, 40)
+        && isNonEmptyString(data.deviceId, 128)
+        && data.eventDate is int
+        && data.updatedAt is int
+        && data.expiresAt is int
+        && data.expiresAt > request.time.toMillis()
+        && data.updatedAt <= request.time.toMillis() + 600000
+        && data.updatedAt >= request.time.toMillis() - 86400000
+        && data.eventDate >= request.time.toMillis() - 172800000
+        && data.priority is int
+        && data.priority >= 1
+        && data.priority <= 200
+        && isSafeString(data.sportTitle, 120)
+        && isSafeString(data.competitionKey, 180)
+        && isSafeString(data.participantA, 140)
+        && isSafeString(data.participantB, 140);
     }
 
     function isValidSharedResult(data) {
@@ -188,6 +230,32 @@ service cloud.firestore {
 
     function allowedSharedCalendarEventKeys() {
       return requiredSharedCalendarEventKeys();
+    }
+
+    function requiredAiRequestKeys() {
+      return [
+        'documentType',
+        'eventId',
+        'sport',
+        'sportTitle',
+        'competitionKey',
+        'competition',
+        'eventName',
+        'eventDate',
+        'participantA',
+        'participantB',
+        'priority',
+        'reason',
+        'appVersion',
+        'deviceId',
+        'updatedAt',
+        'expiresAt',
+        'status'
+      ];
+    }
+
+    function allowedAiRequestKeys() {
+      return requiredAiRequestKeys();
     }
 
     function isNonEmptyString(value, maxSize) {

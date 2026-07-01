@@ -14,6 +14,7 @@ Collections :
 - `/shared_results/{eventId}` : résultats collaboratifs envoyés par Android.
 - `/cloud_results/{eventId}` : événements, pronostics et analyses préparés par GitHub Actions.
 - `/cloud_diagnostics/current` : dernier état du job cloud, sources, erreurs, quota et diagnostic IA.
+- `/ai_requests/{requestId}` : demandes légères de priorité IA créées depuis les sports/compétitions favoris.
 
 ## Déploiement règles
 
@@ -64,5 +65,6 @@ powershell -ExecutionPolicy Bypass -File tools\Test-FirebaseCloud.ps1
 - `cloud_diagnostics/current.resultsWritten > 0`
 - `cloud_diagnostics/current.aiPaidDisabled` contient les fournisseurs payants désactivés
 - `cloud_diagnostics/current.aiFreeEnabled` indique les fournisseurs gratuits réellement configurés
+- `cloud_diagnostics/current.aiRequestsRead`, `aiRequestsMatched` et `aiRequestsCompleted` confirment si les favoris ont poussé des analyses IA prioritaires
 
 Le plan Spark gratuit peut atteindre ses quotas Firestore. Dans ce cas l’erreur doit apparaître dans Réglages, sans bloquer l’application.

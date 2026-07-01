@@ -193,7 +193,7 @@ fun PredictionDetailScreen(
                 if (cloudAiReading != null) {
                     CloudAiReadingCard(cloudAiReading, accent)
                 } else {
-                    CloudAiPendingCard(prediction, accent)
+                    CloudAiPendingCard(prediction, accent, cloudAiUnavailableReason(prediction))
                 }
             }
         }
@@ -431,6 +431,22 @@ private fun looksLikeLegacyLocalCloudAnalysis(analysis: JsonObject, providerLabe
         "analyse correcte local",
     )
     return legacySignals.any { it in body }
+}
+
+private fun cloudAiUnavailableReason(prediction: PredictionEntity): String {
+    if (prediction.aiAnalysis.isBlank()) return "pas d’analyse IA cloud rattachée à cette fiche"
+    val analysis = prediction.aiAnalysis.parseCloudJsonObjectOrNull()
+        ?: return "JSON IA invalide ou incomplet"
+    val source = analysis.textField("source")
+    if (source.contains("fallback", ignoreCase = true) || source.contains("local-preanalysis", ignoreCase = true)) {
+        return "fallback local rejeté"
+    }
+    val providerCount = analysis.intField("providerCount")
+    if (providerCount <= 0) return "providerCount = 0, donc pas une vraie IA cloud"
+    val providerLabel = analysis.textField("modeleUtilise")
+        .ifBlank { prediction.aiDiagnostic.parseCloudJsonObjectOrNull()?.textListField("iaRepondues")?.joinToString(" + ").orEmpty() }
+    if (looksLikeLegacyLocalCloudAnalysis(analysis, providerLabel)) return "ancienne analyse générique rejetée"
+    return "analyse cloud non affichable avec les champs actuels"
 }
 
 private fun MutableList<CloudAiSection>.addCloudSection(title: String, vararg rawLines: String) {
@@ -1738,7 +1754,7 @@ private fun CloudAiReadingCard(reading: CloudAiReading, accent: Color) {
 }
 
 @Composable
-private fun CloudAiPendingCard(prediction: PredictionEntity, accent: Color) {
+private fun CloudAiPendingCard(prediction: PredictionEntity, accent: Color, reason: String) {
     Surface(shape = RoundedCornerShape(22.dp), color = accent.copy(alpha = 0.10f)) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
             Row(
@@ -1762,7 +1778,7 @@ private fun CloudAiPendingCard(prediction: PredictionEntity, accent: Color) {
                 color = MaterialTheme.colorScheme.onSurface,
             )
             Text(
-                "Actualise les données ou rouvre la fiche après la prochaine synchro cloud. Les statistiques, infos joueurs et autres pronostics restent disponibles plus bas.",
+                "Raison : $reason. Actualise les données ou rouvre la fiche après la prochaine synchro cloud.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = TextSecondary,
             )

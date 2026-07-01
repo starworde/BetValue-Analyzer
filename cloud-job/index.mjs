@@ -1,4 +1,4 @@
-import { enrichResultsWithMultiAi, multiAiProviderDiagnostics } from "./multi-ai.mjs";
+import { enrichResultsWithMultiAi, isUsableExternalAiCache, multiAiProviderDiagnostics } from "./multi-ai.mjs";
 
 const APP_VERSION = "github-actions-cloud-v1";
 const JOB_STARTED_AT = Date.now();
@@ -141,6 +141,9 @@ const diagnostics = {
   aiFusionCount: 0,
   aiFallbackUsed: 0,
   aiQuotaReached: false,
+  aiRequestsRead: 0,
+  aiRequestsMatched: 0,
+  aiRequestsCompleted: 0,
 };
 
 main().catch(async (error) => {
@@ -215,6 +218,9 @@ async function main() {
       aiFusionCount: diagnostics.aiFusionCount,
       aiFallbackUsed: diagnostics.aiFallbackUsed,
       aiQuotaReached: diagnostics.aiQuotaReached,
+      aiRequestsRead: diagnostics.aiRequestsRead,
+      aiRequestsMatched: diagnostics.aiRequestsMatched,
+      aiRequestsCompleted: diagnostics.aiRequestsCompleted,
       sampleEvents: results.slice(0, 8).map((result) => ({
         sport: result.sport,
         competition: result.competition,
@@ -268,6 +274,9 @@ async function main() {
         aiErrors: diagnostics.aiErrors.slice(0, 8),
         aiFallbackUsed: diagnostics.aiFallbackUsed,
         aiQuotaReached: diagnostics.aiQuotaReached,
+        aiRequestsRead: diagnostics.aiRequestsRead,
+        aiRequestsMatched: diagnostics.aiRequestsMatched,
+        aiRequestsCompleted: diagnostics.aiRequestsCompleted,
       }, null, 2));
       return;
     }
@@ -300,6 +309,9 @@ async function main() {
     aiFusionCount: diagnostics.aiFusionCount,
     aiFallbackUsed: diagnostics.aiFallbackUsed,
     aiQuotaReached: diagnostics.aiQuotaReached,
+    aiRequestsRead: diagnostics.aiRequestsRead,
+    aiRequestsMatched: diagnostics.aiRequestsMatched,
+    aiRequestsCompleted: diagnostics.aiRequestsCompleted,
   }, null, 2));
 }
 
@@ -891,7 +903,7 @@ async function writeCloudResults(db, results) {
 
 async function deleteRemovedSports(db) {
   let deleted = 0;
-  for (const collection of ["cloud_results", "shared_results"]) {
+  for (const collection of ["cloud_results", "shared_results", "ai_requests"]) {
     for (const sport of REMOVED_SPORTS) {
       while (deleted < MAX_REMOVED_SPORT_DELETES) {
         let snapshot;
@@ -960,6 +972,9 @@ async function writeDiagnostic(db, extra = {}) {
     aiFusionCount: diagnostics.aiFusionCount,
     aiFallbackUsed: diagnostics.aiFallbackUsed,
     aiQuotaReached: diagnostics.aiQuotaReached,
+    aiRequestsRead: diagnostics.aiRequestsRead,
+    aiRequestsMatched: diagnostics.aiRequestsMatched,
+    aiRequestsCompleted: diagnostics.aiRequestsCompleted,
     error: extra.error || "",
     updatedAt: finishedAt,
   }, { merge: true });
@@ -1161,7 +1176,13 @@ function cloudDocumentIdFor(eventId) {
 }
 
 function sanitizeFirestore(result) {
-  return Object.fromEntries(Object.entries(result).map(([key, value]) => [key, value ?? ""]));
+  const output = Object.fromEntries(Object.entries(result).map(([key, value]) => [key, value ?? ""]));
+  if (!isUsableExternalAiCache(output.aiAnalysis)) {
+    delete output.aiAnalysis;
+    delete output.aiDiagnostic;
+    delete output.aiGeneratedAt;
+  }
+  return output;
 }
 
 function sleep(ms) {
