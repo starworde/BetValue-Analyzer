@@ -327,6 +327,7 @@ async function loadAiCache(db, targets, diagnostics) {
         const doc = await db.collection("cloud_results").doc(cloudDocumentIdFor(result.eventId)).get();
         const data = doc.exists ? doc.data() : null;
         if (!data?.aiAnalysis || !data?.aiDiagnostic) return;
+        if (!isUsableExternalAiCache(data.aiAnalysis)) return;
         const updatedAt = Number(data.aiGeneratedAt || data.updatedAt || 0);
         if (updatedAt && Date.now() - updatedAt <= AI_CACHE_TTL_MS) {
           output.set(result.eventId, {
@@ -691,6 +692,17 @@ function parseJsonObject(value) {
     const match = text.match(/\{[\s\S]*\}/);
     if (match) return JSON.parse(match[0]);
     throw new Error("Réponse IA non JSON");
+  }
+}
+
+function isUsableExternalAiCache(value) {
+  try {
+    const parsed = typeof value === "string" ? JSON.parse(value) : value;
+    const source = String(parsed?.source || "");
+    const providerCount = Number(parsed?.providerCount || 0);
+    return providerCount > 0 && !/fallback|local-preanalysis/i.test(source);
+  } catch {
+    return false;
   }
 }
 
