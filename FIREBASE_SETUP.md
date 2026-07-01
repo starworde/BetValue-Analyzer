@@ -18,6 +18,10 @@ Collections :
 
 ## Déploiement règles
 
+Le workflow GitHub `BetValue cloud sports job` déploie automatiquement `firestore.rules` via `cloud-job/deploy-rules.mjs` et le Firebase Admin SDK, avec `FIREBASE_SERVICE_ACCOUNT_JSON`.
+
+Déploiement manuel possible :
+
 ```powershell
 firebase deploy --only firestore:rules --project betvalue-analyzer
 ```

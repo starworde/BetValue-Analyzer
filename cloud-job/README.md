@@ -55,7 +55,10 @@ Vérification syntaxe :
 ```bash
 node --check index.mjs
 node --check multi-ai.mjs
+node --check deploy-rules.mjs
 ```
+
+Le workflow GitHub déploie `../firestore.rules` via `deploy-rules.mjs` et le Firebase Admin SDK, avec le même `FIREBASE_SERVICE_ACCOUNT_JSON` que le job cloud. Il ne dépend pas d’un `firebase login` interactif.
 
 ## Diagnostic attendu
 
