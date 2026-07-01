@@ -1,4 +1,4 @@
-name: Android V113 release
+name: Android V114 release
 
 on:
   workflow_dispatch:
@@ -6,14 +6,14 @@ on:
     branches:
       - main
     paths:
-      - ".github/workflows/android-v113-release.yml"
+      - ".github/workflows/android-v114-release.yml"
 
 permissions:
   contents: write
 
 jobs:
   build-release-apk:
-    name: Build and publish APK V113
+    name: Build and publish APK V114
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -30,14 +30,14 @@ jobs:
       - name: Prepare Gradle
         run: chmod +x ./gradlew
 
-      - name: Test, lint and export V113 APK
+      - name: Test, lint and export V114 APK
         run: ./gradlew testDebugUnitTest lintDebug exportVersionedApk --no-daemon --stacktrace
 
       - name: Check APK
         shell: bash
         run: |
-          test -f output/apk/BetValueAnalyzer-v113.apk
-          sha256sum output/apk/BetValueAnalyzer-v113.apk > output/apk/BetValueAnalyzer-v113.sha256
+          test -f output/apk/BetValueAnalyzer-v114.apk
+          sha256sum output/apk/BetValueAnalyzer-v114.apk > output/apk/BetValueAnalyzer-v114.sha256
           ls -lh output/apk/
 
       - name: Publish GitHub release
@@ -45,9 +45,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          gh release delete v113 --yes --cleanup-tag || true
-          gh release create v113 \
-            output/apk/BetValueAnalyzer-v113.apk \
-            output/apk/BetValueAnalyzer-v113.sha256 \
-            --title "BetValue Analyzer V113" \
-            --notes "APK V113 construit automatiquement depuis main. Version Android: 5.0.0 / versionCode 113. Nouvelle couche multi-IA gratuite côté cloud, analyse IA approfondie, diagnostic IA/Firebase, web app mise à jour, cache Firestore et fallback local sans clé dans l'APK."
+          gh release delete v114 --yes --cleanup-tag || true
+          gh release create v114 \
+            output/apk/BetValueAnalyzer-v114.apk \
+            output/apk/BetValueAnalyzer-v114.sha256 \
+            --title "BetValue Analyzer V114" \
+            --notes "APK V114 construit automatiquement depuis main. Version Android: 5.1.0 / versionCode 114. Vraie couche Analyste IA via GitHub Models côté GitHub Actions, affichage compact type analyste sportif, cache local ignoré quand il ne contient qu’une pré-analyse, sources IA nettoyées, web app alignée."
