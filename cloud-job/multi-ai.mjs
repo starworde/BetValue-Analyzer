@@ -812,10 +812,41 @@ export function isUsableExternalAiCache(value) {
     const parsed = typeof value === "string" ? JSON.parse(value) : value;
     const source = String(parsed?.source || "");
     const providerCount = Number(parsed?.providerCount || 0);
-    return providerCount > 0 && !/fallback|local-preanalysis/i.test(source);
+    return providerCount > 0 && !/fallback|local-preanalysis/i.test(source) && hasStrongExternalAiShape(parsed);
   } catch {
     return false;
   }
+}
+
+function hasStrongExternalAiShape(value) {
+  const required = [
+    value?.lectureRapide,
+    value?.avantageFavori || value?.favoriLogique,
+    value?.dangerOutsider || value?.dangerAdversaire,
+    value?.matchUpCle || value?.reponseStrategique,
+    value?.scenarioPrincipal,
+    value?.scenarioAlternatif,
+  ].map((item) => compactAiText(item, 520));
+  if (required.filter((line) => line.length >= 35).length < 4) return false;
+  const body = required.concat([
+    value?.titreAnalyse,
+    value?.pointsQuiComptent,
+    value?.confianceTexte,
+  ]).join(" ").toLowerCase();
+  const legacyFlatSignals = [
+    "signal présent dans les données",
+    "signal present dans les donnees",
+    "doit être lu comme une conclusion",
+    "doit etre lu comme une conclusion",
+    "pas juste repris du tableau",
+    "ce que ça change",
+    "ce que ca change",
+    "conclusion provisoire",
+    "lignes de données relues localement",
+    "lignes de donnees relues localement",
+    "analyse correcte local",
+  ];
+  return !legacyFlatSignals.some((signal) => body.includes(signal));
 }
 
 function normalizeField(value) {
