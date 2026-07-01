@@ -155,6 +155,10 @@ class CloudCollaborativeRulesTest {
         assertTrue(validAiAnalysis("Vraie IA").hasValidCloudAiAnalysis())
         assertFalse("""{"source":"local-preanalysis","providerCount":1,"lectureRapide":"fallback"}""".hasValidCloudAiAnalysis())
         assertFalse("""{"source":"multi-ai-cloud","providerCount":0,"lectureRapide":"zero"}""".hasValidCloudAiAnalysis())
+        assertFalse(
+            """{"source":"multi-ai-cloud","providerCount":1,"lectureRapide":"Ce que ca change : pas juste repris du tableau","avantageFavori":"signal present dans les donnees","dangerOutsider":"signal present dans les donnees","matchUpCle":"signal present dans les donnees","scenarioPrincipal":"doit etre lu comme une conclusion","scenarioAlternatif":"signal present dans les donnees"}"""
+                .hasValidCloudAiAnalysis()
+        )
         assertFalse("""{pas json}""".hasValidCloudAiAnalysis())
     }
 
@@ -357,7 +361,7 @@ class CloudCollaborativeRulesTest {
     )
 
     private fun validAiAnalysis(lecture: String): String =
-        """{"source":"multi-ai-cloud","providerCount":1,"titreAnalyse":"Analyse IA test","lectureRapide":"$lecture","scenarioPrincipal":"Scenario test","confianceIA":68,"modeleUtilise":"GitHub Models via Actions"}"""
+        """{"source":"multi-ai-cloud","providerCount":1,"titreAnalyse":"Analyse IA test","lectureRapide":"$lecture. Lecture contextualisee avec rythme, forme et derniere information disponible.","avantageFavori":"Le favori garde une logique si sa qualite de creation, sa forme recente et son effectif confirme se recoupent.","dangerOutsider":"L outsider devient credible si le match se ferme, si le favori subit la transition ou si une absence cle pese.","matchUpCle":"Le duel decisif oppose la maitrise du rythme du favori a la capacite adverse a casser le tempo.","scenarioPrincipal":"Scenario principal : avantage court du favori apres un match serre et ajuste tactiquement.","scenarioAlternatif":"Scenario alternatif : match nul ou bascule outsider si les dernieres infos contredisent la compo attendue.","confianceIA":68,"modeleUtilise":"GitHub Models via Actions"}"""
 
     private fun upcomingEvent(): UpcomingEventEntity = UpcomingEventEntity(
         id = "event-1",

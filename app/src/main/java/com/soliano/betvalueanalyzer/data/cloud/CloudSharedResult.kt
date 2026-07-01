@@ -860,8 +860,34 @@ internal fun String.hasValidCloudAiAnalysis(): Boolean = runCatching {
         source.isNotBlank() &&
         "fallback" !in source &&
         "local preanalysis" !in source &&
-        "local" !in source
+        "local" !in source &&
+        parsed.hasStrongCloudAiShape()
 }.getOrDefault(false)
+
+private fun JsonObject.hasStrongCloudAiShape(): Boolean {
+    val required = listOf(
+        aiText("lectureRapide"),
+        aiText("avantageFavori").ifBlank { aiText("favoriLogique") },
+        aiText("dangerOutsider").ifBlank { aiText("dangerAdversaire") },
+        aiText("matchUpCle").ifBlank { aiText("reponseStrategique") },
+        aiText("scenarioPrincipal"),
+        aiText("scenarioAlternatif"),
+    ).map { it.trimCloudText(520) }
+    if (required.count { it.length >= 35 } < 4) return false
+    val body = (required + listOf(aiText("titreAnalyse"), aiText("pointsQuiComptent"), aiText("confianceTexte")))
+        .joinToString(" ")
+        .cloudTextKey()
+    val flatSignals = listOf(
+        "signal present dans les donnees",
+        "doit etre lu comme une conclusion",
+        "pas juste repris du tableau",
+        "ce que ca change",
+        "conclusion provisoire",
+        "lignes de donnees relues localement",
+        "analyse correcte local",
+    )
+    return flatSignals.none { it in body }
+}
 
 private fun JsonObject.aiText(key: String): String =
     get(key)?.takeIf { it.isJsonPrimitive }?.asString.orEmpty()
