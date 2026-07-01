@@ -85,7 +85,7 @@ class LocalAnalysisAssistantTest {
         assertTrue(tactical.contains("Pressing"))
         assertTrue(tactical.contains("Compositions"))
         val conclusion = reading.sections.first { it.title == "Conclusion argumentée" }.lines.joinToString(" ")
-        assertTrue(conclusion.contains("Scénario le plus probable"))
+        assertTrue(conclusion.contains("Scénario principal"))
         assertTrue(conclusion.contains("Scénario alternatif crédible"))
     }
 

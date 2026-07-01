@@ -4,7 +4,14 @@ const AI_HTTP_TIMEOUT_MS = Number.parseInt(process.env.AI_HTTP_TIMEOUT_MS ?? "22
 const MAX_AI_FIELD = 520;
 
 const REQUIRED_JSON_KEYS = [
+  "titreAnalyse",
   "lectureRapide",
+  "avantageFavori",
+  "dangerOutsider",
+  "matchUpCle",
+  "pointsQuiComptent",
+  "scoreProbable",
+  "confianceTexte",
   "favoriLogique",
   "dangerAdversaire",
   "reponseStrategique",
@@ -22,11 +29,11 @@ const REQUIRED_JSON_KEYS = [
 ];
 
 const PAID_PROVIDERS_DISABLED = [
-  "OpenAI",
-  "Claude / Anthropic",
-  "xAI / Grok",
-  "Cohere",
-  "Tous fournisseurs nécessitant paiement, facturation obligatoire ou carte bancaire",
+  "OpenAI API directe avec clé utilisateur",
+  "Claude / Anthropic direct avec clé utilisateur",
+  "xAI / Grok direct avec clé utilisateur",
+  "Cohere direct avec clé utilisateur",
+  "Toute clé payante, facturation obligatoire ou carte bancaire dans l’APK",
 ];
 
 export function multiAiProviderDiagnostics() {
@@ -175,7 +182,11 @@ export function buildAiInputDossier(result, event, newsContext) {
     meteo: extractLines(result.contextInsights + "\n" + result.sourceDetails, ["météo", "pluie", "vent", "chaleur"]),
     fatigueDeplacementCalendrier: extractLines(result.contextInsights + "\n" + result.negativeArguments, ["fatigue", "déplacement", "calendrier", "back-to-back"]),
     actualitesRecentes: newsContext?.titles?.slice(0, 6) || [],
-    sourcesUtilisees: compactAiText([result.sourceName, result.sourceDetails, event?.sourceName].filter(Boolean).join("\n"), 1200),
+    sourcesUtilisees: compactAiText([
+      sourceNameForAi(result.sourceName),
+      result.sourceDetails,
+      sourceNameForAi(event?.sourceName),
+    ].filter(Boolean).join("\n"), 1200),
     donneesManquantes: missingDataHints(result, sport),
     analyseLocaleInitiale: {
       selection: result.selection,
@@ -188,11 +199,26 @@ export function buildAiInputDossier(result, event, newsContext) {
 }
 
 function allFreeProviderNames() {
-  return ["Gemini free tier", "Groq free tier", "Mistral free si disponible", "OpenRouter modèles :free"];
+  return ["GitHub Models via Actions", "Gemini free tier", "Groq free tier", "Mistral free si disponible", "OpenRouter modèles :free"];
 }
 
 function configuredFreeProviders() {
   const providers = [];
+  if (process.env.GITHUB_TOKEN && process.env.GITHUB_MODELS_ENABLED !== "0") {
+    providers.push({
+      id: "github-models",
+      label: "GitHub Models via Actions",
+      model: process.env.GITHUB_MODELS_MODEL || "openai/gpt-4o",
+      apiKey: process.env.GITHUB_TOKEN,
+      endpoint: "https://models.github.ai/inference/chat/completions",
+      kind: "github-models",
+      jsonMode: false,
+      extraHeaders: {
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    });
+  }
   if (process.env.GEMINI_API_KEY) {
     providers.push({
       id: "gemini",
@@ -379,12 +405,21 @@ async function postJson(url, body, extraHeaders = {}) {
 }
 
 function buildPrompt(dossier) {
+  const participants = dossier.participants?.join(" vs ") || dossier.evenement || "événement";
   return [
-    "Analyse ce match/événement comme un analyste sportif. Ne résume pas seulement les statistiques.",
-    "Raisonne en match-up : avantage détecté, réponse adverse possible, crédibilité de la réponse, avantage conservé/réduit/neutralisé.",
-    "N'invente aucune blessure, composition, météo ou statistique. Si une donnée manque, écris-le.",
-    "Chaque champ doit faire 2 à 4 lignes maximum, sans valeur brute inutile.",
+    `Tu es une vraie couche Analyste IA pour BetValue Analyzer. Analyse ${participants} comme un analyste sportif, pas comme un résumé de statistiques.`,
+    "Objectif : produire une réflexion sportive contextualisée, utilisable dans l'app, compacte et claire.",
+    "Tu dois exploiter les données fournies : stats récentes, news, blessures, suspensions, retours, compositions, fatigue, calendrier, déplacement, surface/circuit/parcours/météo quand c’est disponible.",
+    "Adapte le raisonnement au sport : football, rugby, tennis, cyclisme, F1/NASCAR, volley, basket, baseball, combat, golf, etc.",
+    "Tu peux contredire le favori statistique si les signaux contextuels le justifient, mais explique pourquoi.",
+    "Ne fais jamais de simple récap. Mets en avant les match-ups, signaux faibles, risques du favori et chemin crédible de l’outsider.",
+    "N’invente aucune blessure, composition, météo, statistique ou déclaration. Si l’info manque, dis-le sobrement.",
+    "Style demandé : proche d’un analyste humain, phrases courtes, pas de jargon inutile, pas de décimales brutes, pas de disclaimer de pari.",
+    "Chaque champ doit faire 1 à 4 phrases maximum.",
+    "pointsQuiComptent peut être une liste de 3 à 5 points séparés par des puces ou retours ligne.",
     `Format JSON obligatoire avec exactement ces clés : ${REQUIRED_JSON_KEYS.join(", ")}.`,
+    "Sens des champs nouveaux : titreAnalyse = “Analyse IA — A vs B”; avantageFavori = pourquoi le choix logique tient; dangerOutsider = comment l’adversaire peut gêner; matchUpCle = duel tactique/sportif décisif; scoreProbable = score/état/top3 projeté selon le sport; confianceTexte = niveau humain type Faible, Moyenne, Moyenne +, Forte avec explication.",
+    "Remplis aussi les anciens champs de compatibilité avec le même contenu : favoriLogique=avantageFavori, dangerAdversaire=dangerOutsider, reponseStrategique=matchUpCle, avantagesExploitables/avantagesNeutralises/pointsASurveiller utiles mais sans répétition.",
     "Dossier :",
     JSON.stringify(dossier, null, 2),
   ].join("\n\n");
@@ -395,6 +430,16 @@ function normalizeAiResponse(raw, provider) {
   for (const key of REQUIRED_JSON_KEYS) {
     output[key] = normalizeField(raw?.[key]);
   }
+  output.titreAnalyse = compactAiText(output.titreAnalyse || "Analyse IA", MAX_AI_FIELD);
+  output.avantageFavori = compactAiText(output.avantageFavori || output.favoriLogique, MAX_AI_FIELD);
+  output.dangerOutsider = compactAiText(output.dangerOutsider || output.dangerAdversaire, MAX_AI_FIELD);
+  output.matchUpCle = compactAiText(output.matchUpCle || output.reponseStrategique, MAX_AI_FIELD);
+  output.pointsQuiComptent = compactAiText(output.pointsQuiComptent || [output.avantagesExploitables, output.avantagesNeutralises, output.pointsASurveiller].filter(Boolean).join(" · "), MAX_AI_FIELD);
+  output.scoreProbable = compactAiText(output.scoreProbable || "", MAX_AI_FIELD);
+  output.confianceTexte = compactAiText(output.confianceTexte || output.niveauRisque || "", MAX_AI_FIELD);
+  output.favoriLogique = compactAiText(output.favoriLogique || output.avantageFavori, MAX_AI_FIELD);
+  output.dangerAdversaire = compactAiText(output.dangerAdversaire || output.dangerOutsider, MAX_AI_FIELD);
+  output.reponseStrategique = compactAiText(output.reponseStrategique || output.matchUpCle, MAX_AI_FIELD);
   output.modeleUtilise = compactAiText(output.modeleUtilise || `${provider.label} · ${provider.model}`, MAX_AI_FIELD);
   output.confianceIA = normalizeConfidence(output.confianceIA);
   return output;
@@ -466,22 +511,29 @@ function buildLocalAiFallback({ result, event, newsContext, reason, providers, c
   const sport = result.sport;
   const matchup = localMatchupLines(sport, result);
   const analysis = {
-    source: "fallback-local",
+    source: "local-preanalysis",
     generatedAt: Date.now(),
     eventId: result.eventId,
     sport,
     providerCount: 0,
+    titreAnalyse: `Pré-analyse locale — ${[result.homeTeam, result.awayTeam].filter(Boolean).join(" vs ") || result.eventName || result.competition || "événement"}`,
     lectureRapide: compactAiText(`${reason} Lecture locale : ${result.selection} reste le scénario affiché, avec prudence.`, MAX_AI_FIELD),
+    avantageFavori: compactAiText(`Avantage détecté : ${result.selection || "non tranché"} ressort des données déjà consolidées, mais sans validation IA externe.`, MAX_AI_FIELD),
+    dangerOutsider: matchup.danger,
+    matchUpCle: matchup.response,
+    pointsQuiComptent: compactAiText([matchup.exploitable, matchup.neutralized, missingDataHints(result, sport).join(" · ")].filter(Boolean).join("\n"), MAX_AI_FIELD),
     favoriLogique: compactAiText(`Favori logique : ${result.selection || "non tranché"} selon les données déjà consolidées.`, MAX_AI_FIELD),
     dangerAdversaire: matchup.danger,
     reponseStrategique: matchup.response,
     avantagesExploitables: matchup.exploitable,
     avantagesNeutralises: matchup.neutralized,
     scenarioPrincipal: compactAiText(result.expectedScore || result.selection || "Surveillance, scénario principal non consolidé.", MAX_AI_FIELD),
+    scoreProbable: compactAiText(result.expectedScore || "", MAX_AI_FIELD),
     scenarioAlternatif: matchup.alternative,
     pointsASurveiller: compactAiText(missingDataHints(result, sport).join(" · ") || "Dernières infos, blessures, compositions et sources publiques.", MAX_AI_FIELD),
     confianceIA: result.confidenceScore,
-    sourcesUtilisees: compactAiText([result.sourceName, result.sourceDetails].filter(Boolean).join(" · "), MAX_AI_FIELD),
+    confianceTexte: "Pré-analyse locale : confiance limitée tant que l’IA cloud n’a pas répondu.",
+    sourcesUtilisees: compactAiText([sourceNameForAi(result.sourceName), result.sourceDetails].filter(Boolean).join(" · "), MAX_AI_FIELD),
     donneesManquantes: compactAiText(missingDataHints(result, sport).join(" · "), MAX_AI_FIELD),
     niveauRisque: result.riskLevel || "Données à surveiller",
     modeleUtilise: "Fallback local BetValue",
@@ -692,13 +744,19 @@ function safeJsonString(value, max) {
     sport: value?.sport || "",
     providerCount: value?.providerCount || 0,
     lectureRapide: compactAiText(value?.lectureRapide, 360),
+    avantageFavori: compactAiText(value?.avantageFavori, 260),
+    dangerOutsider: compactAiText(value?.dangerOutsider, 260),
+    matchUpCle: compactAiText(value?.matchUpCle, 260),
+    pointsQuiComptent: compactAiText(value?.pointsQuiComptent, 260),
     favoriLogique: compactAiText(value?.favoriLogique, 260),
     dangerAdversaire: compactAiText(value?.dangerAdversaire, 300),
     reponseStrategique: compactAiText(value?.reponseStrategique, 300),
     avantagesExploitables: compactAiText(value?.avantagesExploitables, 260),
     avantagesNeutralises: compactAiText(value?.avantagesNeutralises, 260),
     scenarioPrincipal: compactAiText(value?.scenarioPrincipal, 320),
+    scoreProbable: compactAiText(value?.scoreProbable, 140),
     scenarioAlternatif: compactAiText(value?.scenarioAlternatif, 280),
+    confianceTexte: compactAiText(value?.confianceTexte, 180),
     pointsASurveiller: compactAiText(value?.pointsASurveiller, 260),
     confianceIA: value?.confianceIA || 50,
     sourcesUtilisees: compactAiText(value?.sourcesUtilisees, 220),
@@ -751,6 +809,14 @@ function compactAiText(value, max = MAX_AI_FIELD) {
   return String(value || "").replace(/\s+/g, " ").trim().slice(0, max);
 }
 
+function sourceNameForAi(value) {
+  const text = compactAiText(value, 220);
+  if (!text) return "";
+  if (/consensus maison/i.test(text)) return "";
+  if (/fallback/i.test(text)) return "";
+  return text;
+}
+
 function cloudDocumentIdFor(eventId) {
   return compactAiText(String(eventId || "unknown-event")
     .replace(/[^A-Za-z0-9_-]+/g, "_")
@@ -764,7 +830,7 @@ function chunked(values, size) {
 }
 
 function isQuotaError(error) {
-  return error?.status === 429 || /quota|rate limit|resource_exhausted/i.test(error?.message || "");
+  return error?.status === 429 || /quota|rate limit|resource_exhausted|too many requests|models/i.test(error?.message || "");
 }
 
 function sleep(ms) {

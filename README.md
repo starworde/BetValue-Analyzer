@@ -2,7 +2,7 @@
 
 Application Android + web app de suivi sportif et d’analyse pré‑match/live. Elle récupère automatiquement les événements publics, consolide les statistiques utiles par sport, puis affiche des pronostics et une lecture “Analyste IA” quand des données suffisantes existent.
 
-Le projet ne contient aucune clé IA ni secret Firebase dans l’APK. Les enrichissements cloud se font via GitHub Actions + Firestore, avec cache et fallback local.
+Le projet ne contient aucune clé IA ni secret Firebase dans l’APK. Les enrichissements IA se font côté GitHub Actions via GitHub Models + Firestore, avec cache et pré‑analyse locale seulement si l’IA cloud ne répond pas.
 
 ## Ce que fait l’application
 
@@ -23,20 +23,25 @@ Sports retirés de l’interface : snooker, football australien, fléchettes, cr
 La couche IA est conçue pour raisonner, pas seulement reformuler les statistiques déjà visibles :
 
 - collecte d’un dossier structuré par événement ;
-- appel optionnel de modèles gratuits côté cloud ;
+- appel GitHub Models côté cloud via `GITHUB_TOKEN` Actions, sans clé dans l’APK ;
+- appels optionnels de modèles gratuits en renfort si des secrets dédiés existent ;
 - fusion des réponses quand plusieurs IA répondent ;
 - stockage Firestore avec durée de cache ;
 - affichage Android en cartes courtes et lisibles ;
-- fallback local si aucune IA gratuite n’est configurée ou si le quota gratuit est atteint.
+- pré‑analyse locale uniquement si l’IA cloud ne répond pas, affichée comme telle.
 
-Fournisseurs gratuits prévus côté GitHub Actions :
+Fournisseur IA cloud par défaut :
+
+- GitHub Models via GitHub Actions, permission `models: read`, modèle par défaut `openai/gpt-4o`.
+
+Fournisseurs gratuits optionnels en renfort côté GitHub Actions :
 
 - Gemini free tier ;
 - Groq free tier ;
 - Mistral uniquement si un mode gratuit est explicitement activé ;
 - OpenRouter uniquement avec un modèle `:free`.
 
-Fournisseurs payants désactivés par défaut : OpenAI, Claude/Anthropic, xAI/Grok, Cohere et tout service nécessitant facturation obligatoire ou carte bancaire.
+Fournisseurs payants directs désactivés par défaut : clés OpenAI/Claude/xAI/Cohere côté APK et tout service nécessitant facturation obligatoire ou carte bancaire dans l’application.
 
 ## Cloud gratuit
 

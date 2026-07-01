@@ -45,7 +45,7 @@ class SettingsScreenDiagnosticsTest {
         val responding = rows.single { it.label == "Sources cloud qui répondent" }.value
         val empty = rows.single { it.label == "Sources cloud vides" }.value
         val errors = rows.single { it.label == "Sources cloud en erreur" }.value
-        val aiFree = rows.single { it.label == "IA gratuites actives" }.value
+        val aiFree = rows.single { it.label == "IA cloud active" }.value
         val aiFusion = rows.single { it.label == "Fusion IA" }.value
         val paidDisabled = rows.single { it.label == "IA payantes" }.value
 

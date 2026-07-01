@@ -200,7 +200,6 @@ object LocalAnalysisAssistant {
             add("Sources manquantes / limites : ${missingData.take(4).joinToString(" ; ").ifBlank { "aucun manque majeur détecté dans les champs live chargés" }}.")
             add("Dernière mise à jour : ${formatUpdateTime(event.lastUpdate)}.")
             add("Solidité des données : ${status.label}.")
-            add("Architecture : analyse live locale sans clé API dans l’APK ; un backend sécurisé pourra enrichir le recoupement plus tard.")
         }
         return LocalAiReading(
             status = status,
@@ -512,7 +511,7 @@ object LocalAnalysisAssistant {
         val changer = (contradictions.filterNot { it.startsWith("Aucune contradiction", ignoreCase = true) } + missingData)
             .firstOrNull()
         return buildList {
-            add("Scénario le plus probable : $selection, mais il doit être lu comme une conclusion argumentée, pas comme un simple pourcentage ($probability %).")
+            add("Scénario principal : $selection ($probability %), à valider avec les dernières infos réellement disponibles.")
             add("Scénario alternatif crédible : ${alternative ?: if (favorite != null) "surveiller la réponse de l’adversaire si les dernières infos inversent la lecture." else "aucun scénario alternatif solide disponible."}")
             add("Niveau de confiance : ${status.label}, fiabilité moteur ${prediction.confidenceScore}/100, accord sources ${prediction.sourceAgreement}/100.")
             add("Ce qui peut changer l’analyse : ${changer?.cleanAssistantText() ?: "aucun déclencheur majeur identifié, mais compositions/news de dernière minute restent prioritaires."}")
@@ -539,7 +538,6 @@ object LocalAnalysisAssistant {
                 "Actualités : ${contextLines.size} ligne(s) exploitée(s), recoupement évalué via les sources listées."
             }
         )
-        add("Architecture : analyse locale sans clé API dans l’APK ; backend IA sécurisé possible plus tard via cloud/Firebase/GitHub Actions.")
     }
 
     private fun terrainOrContextFactor(
@@ -1083,10 +1081,30 @@ private fun String.cleanAssistantLines(): List<String> =
         .toList()
 
 private fun String.cleanAssistantText(): String {
+    toAssistantProbabilityTextOrNull()?.let { return it }
     var result = this.trim()
     hardAssistantReplacements.forEach { (bad, good) -> result = result.replace(bad, good) }
-    return result.replace(Regex("\\s+"), " ").trim()
+    return result
+        .replaceRawAssistantProbabilities()
+        .replace(Regex("\\s+"), " ")
+        .trim()
 }
+
+private fun String.toAssistantProbabilityTextOrNull(): String? {
+    val parts = split('|').map { it.trim() }
+    if (parts.size < 3) return null
+    val probability = parts[2].replace(',', '.').toDoubleOrNull()?.coerceIn(0.0, 1.0) ?: return null
+    val percent = "${(probability * 100).roundToInt()} %"
+    return listOf(parts[1], parts[0].takeIf { it.isNotBlank() }?.let { "($it)" }, percent)
+        .filterNotNull()
+        .joinToString(" — ")
+}
+
+private fun String.replaceRawAssistantProbabilities(): String =
+    Regex("""(?<!\d)0[,.](\d{3,})(?!\d)""").replace(this) { match ->
+        val number = "0.${match.groupValues[1]}".toDoubleOrNull()
+        if (number != null) "${(number * 100).roundToInt()} %" else match.value
+    }
 
 private val hardAssistantReplacements = listOf(
     "Ã©" to "é",

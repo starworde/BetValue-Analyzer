@@ -389,8 +389,8 @@ function renderSettings() {
               <h3>Diagnostic cloud</h3>
               <p class="line">Événements : ${escapeHtml(String(diagnostics.eventsFound || 0))}</p>
               <p class="line">Résultats préparés : ${escapeHtml(String(diagnostics.resultsPrepared || 0))}</p>
-              <p class="line">IA gratuites actives : ${escapeHtml((diagnostics.aiFreeEnabled || []).join(", ") || "aucune, fallback local")}</p>
-              <p class="line">Fusion IA : ${escapeHtml(String(diagnostics.aiFusionCount || 0))} · cache ${escapeHtml(String(diagnostics.aiCacheHits || 0))} · fallback ${escapeHtml(String(diagnostics.aiFallbackUsed || 0))}</p>
+              <p class="line">IA cloud active : ${escapeHtml((diagnostics.aiFreeEnabled || []).join(", ") || "en attente de réponse cloud")}</p>
+              <p class="line">Fusion IA : ${escapeHtml(String(diagnostics.aiFusionCount || 0))} · cache ${escapeHtml(String(diagnostics.aiCacheHits || 0))} · pré-analyses locales ${escapeHtml(String(diagnostics.aiFallbackUsed || 0))}</p>
               <p class="line">IA payantes désactivées : ${escapeHtml((diagnostics.aiPaidDisabled || []).slice(0, 4).join(", ") || "oui")}</p>
               <p class="line">Sports sans événement : ${escapeHtml((diagnostics.sportsWithoutEvents || []).join(", ") || "aucun")}</p>
             </div>`
@@ -495,33 +495,40 @@ function renderAiBlock(result) {
   const analysis = safeJson(result.aiAnalysis, null);
   if (!analysis) return "";
   const diagnostic = safeJson(result.aiDiagnostic, null);
+  const providerCount = Number(analysis.providerCount || 0);
+  const source = cleanText(analysis.source || "");
+  const isCloudAi = providerCount > 0 && !/fallback|local-preanalysis/i.test(source);
+  const title = isCloudAi ? "Analyse IA approfondie" : "Pré-analyse locale";
+  const pairName = displayMatchName(result);
   const sections = [
-    ["Lecture globale", analysis.lectureRapide, analysis.favoriLogique],
-    ["Analyse sportive / tactique", analysis.reponseStrategique, analysis.avantagesExploitables, analysis.avantagesNeutralises],
-    ["Favori fragile / outsider crédible", analysis.dangerAdversaire, analysis.scenarioAlternatif],
-    ["Conclusion argumentée", analysis.scenarioPrincipal, analysis.pointsASurveiller],
-    ["Sources & limites", analysis.sourcesUtilisees, analysis.donneesManquantes, analysis.erreursOuLimites],
-    ["Accord entre IA", analysis.accordEntreIA],
+    ["📌 Lecture rapide", analysis.lectureRapide],
+    [`✅ Avantage ${cloudParticipantLabel(result)}`, analysis.avantageFavori || analysis.favoriLogique],
+    [`⚠️ Danger ${cloudOutsiderLabel(result)}`, analysis.dangerOutsider || analysis.dangerAdversaire],
+    ["🧩 Match-up clé", analysis.matchUpCle || analysis.reponseStrategique],
+    ["🔥 Points qui comptent vraiment", analysis.pointsQuiComptent || analysis.avantagesExploitables || analysis.avantagesNeutralises],
+    ["🎯 Scénario principal", analysis.scenarioPrincipal, analysis.scoreProbable ? `Score / état probable : ${analysis.scoreProbable}` : ""],
+    ["🔁 Scénario alternatif", analysis.scenarioAlternatif],
+    ["📊 Confiance IA", analysis.confianceTexte, analysis.confianceIA ? `${analysis.confianceIA}/100` : ""],
   ]
-    .map(([title, ...items]) => [title, items.flatMap(splitUsefulLines).slice(0, 4)])
+    .map(([sectionTitle, ...items]) => [sectionTitle, items.flatMap(splitAiLines).slice(0, 4)])
     .filter(([, lines]) => lines.length);
-  const diagnosticLines = diagnostic
+  const diagnosticLines = isCloudAi && diagnostic
     ? [
-        `IA gratuites actives : ${(diagnostic.iaGratuitesActivees || []).join(", ") || "aucune, fallback local"}`,
-        `Réponses IA : ${(diagnostic.iaRepondues || []).length}/${Math.max((diagnostic.iaAppelees || []).length, (diagnostic.iaRepondues || []).length)}`,
-        `Fusion : ${diagnostic.fusionFaite ? "faite" : "non faite"} · fallback : ${diagnostic.fallbackUtilise ? "oui" : "non"} · coût : ${diagnostic.coutEstime || "0 €"}`,
-      ]
+        `IA utilisée : ${(diagnostic.iaRepondues || []).join(" + ") || analysis.modeleUtilise || "cloud"}`,
+        analysis.sourcesUtilisees ? `Sources sport : ${analysis.sourcesUtilisees}` : "",
+        `Réponses cloud : ${(diagnostic.iaRepondues || []).length}/${Math.max((diagnostic.iaAppelees || []).length, (diagnostic.iaRepondues || []).length)}`,
+        diagnostic.dateGeneration ? `Dernière génération : ${diagnostic.dateGeneration}` : "",
+      ].filter(Boolean)
     : [];
   return `
     <div class="info-block ai-block">
-      <h3>Analyse IA approfondie</h3>
-      <p class="line"><strong>${escapeHtml(analysis.lectureRapide || analysis.scenarioPrincipal || "Analyse enrichie disponible.")}</strong></p>
-      ${analysis.confianceIA ? `<p class="line">Confiance IA : ${escapeHtml(String(analysis.confianceIA))}/100</p>` : ""}
+      <h3>${escapeHtml(title)}</h3>
+      <p class="line"><strong>${escapeHtml(cleanAiLine(analysis.titreAnalyse || `Analyse IA — ${pairName}`))}</strong></p>
       ${sections
         .map(
-          ([title, lines]) => `
+          ([sectionTitle, lines]) => `
             <div class="nested-block">
-              <strong>${escapeHtml(title)}</strong>
+              <strong>${escapeHtml(sectionTitle)}</strong>
               ${lines.map((line) => `<p class="line">• ${escapeHtml(line)}</p>`).join("")}
             </div>
           `,
@@ -529,11 +536,60 @@ function renderAiBlock(result) {
         .join("")}
       ${
         diagnosticLines.length
-          ? `<div class="nested-block"><strong>Transparence IA</strong>${diagnosticLines.map((line) => `<p class="line">• ${escapeHtml(line)}</p>`).join("")}</div>`
+          ? `<div class="nested-block"><strong>Sources IA</strong>${diagnosticLines.map((line) => `<p class="line">• ${escapeHtml(cleanAiLine(line))}</p>`).join("")}</div>`
           : ""
       }
     </div>
   `;
+}
+
+function cloudParticipantLabel(result) {
+  const selection = normalizeSearch(result.selection || "");
+  const teams = [result.homeTeam, result.awayTeam].filter(Boolean);
+  return teams.find((team) => selection.includes(normalizeSearch(team))) || cleanText(result.selection || "").split("(")[0].trim() || "favori";
+}
+
+function cloudOutsiderLabel(result) {
+  const favorite = normalizeSearch(cloudParticipantLabel(result));
+  return [result.homeTeam, result.awayTeam].filter(Boolean).find((team) => !favorite.includes(normalizeSearch(team))) || "outsider";
+}
+
+function splitAiLines(text) {
+  const probability = aiProbabilityLine(text);
+  if (probability) return [probability];
+  return cleanAiLine(text)
+    .split(/\n|•|;/g)
+    .map((line) => cleanAiLine(line.trim()))
+    .filter(Boolean)
+    .filter(isUsefulAiLine)
+    .filter((line, index, lines) => lines.findIndex((candidate) => normalizeSearch(candidate) === normalizeSearch(line)) === index);
+}
+
+function aiProbabilityLine(text) {
+  const parts = cleanText(text || "").split("|").map((part) => cleanText(part).trim());
+  if (parts.length < 3) return null;
+  const probability = Number(String(parts[2]).replace(",", "."));
+  if (!Number.isFinite(probability)) return null;
+  return [parts[1], parts[0] ? `(${parts[0]})` : "", `${Math.round(clampProbability(probability) * 100)} %`].filter(Boolean).join(" — ");
+}
+
+function cleanAiLine(text) {
+  return cleanText(text || "")
+    .replace(/0[,.](\d{3,})/g, (_, digits) => `${Math.round(Number(`0.${digits}`) * 100)} %`)
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isUsefulAiLine(text) {
+  const clean = normalizeSearch(text);
+  return clean &&
+    clean !== "undefined" &&
+    clean !== "null" &&
+    !/^0 \d{3,}$/.test(clean) &&
+    !clean.includes("architecture") &&
+    !clean.includes("fallback local") &&
+    !clean.includes("analyse locale sans cle") &&
+    !clean.includes("simple pourcentage");
 }
 
 function renderTextBlock(title, text) {

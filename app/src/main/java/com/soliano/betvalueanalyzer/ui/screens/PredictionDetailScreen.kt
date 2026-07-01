@@ -192,7 +192,7 @@ fun PredictionDetailScreen(
         }
 
         item {
-            PredictionSection("Analyse IA approfondie", Icons.Outlined.Info, accent) {
+            PredictionSection(if (cloudAiReading != null) "Analyse IA approfondie" else "Pré-analyse locale", Icons.Outlined.Info, accent) {
                 if (cloudAiReading != null) {
                     CloudAiReadingCard(cloudAiReading, accent)
                 } else {
@@ -329,14 +329,16 @@ private fun cloudAiReadingOrNull(prediction: PredictionEntity): CloudAiReading? 
     val diagnostic = prediction.aiDiagnostic.parseCloudJsonObjectOrNull()
 
     val providerCount = analysis.intField("providerCount")
+    val source = analysis.textField("source")
+    if (providerCount <= 0 || source.contains("fallback", ignoreCase = true) || source.contains("local-preanalysis", ignoreCase = true)) {
+        return null
+    }
     val headline = listOf(
-        analysis.textField("lectureRapide"),
-        analysis.textField("scenarioPrincipal"),
+        analysis.textField("titreAnalyse"),
+        "Analyse IA — ${displayPredictionTeams(prediction)}",
     ).firstOrNull { it.isNotBlank() }.orEmpty()
     val confidence = analysis.intField("confianceIA")
-    val source = analysis.textField("source")
     val statusLabel = when {
-        source.contains("fallback", ignoreCase = true) -> "Secours local"
         providerCount >= 2 -> "Fusion IA"
         providerCount == 1 -> "IA cloud"
         else -> "Analyse préparée"
@@ -349,37 +351,44 @@ private fun cloudAiReadingOrNull(prediction: PredictionEntity): CloudAiReading? 
 
     val sections = buildList {
         addCloudSection(
-            "Lecture globale",
+            "📌 Lecture rapide",
             analysis.textField("lectureRapide"),
+        )
+        addCloudSection(
+            "✅ Avantage ${cloudParticipantLabel(prediction.selection, prediction)}",
+            analysis.textField("avantageFavori"),
             analysis.textField("favoriLogique"),
         )
         addCloudSection(
-            "Analyse sportive / tactique",
+            "⚠️ Danger ${cloudOutsiderLabel(prediction)}",
+            analysis.textField("dangerOutsider"),
+            analysis.textField("dangerAdversaire"),
+        )
+        addCloudSection(
+            "🧩 Match-up clé",
+            analysis.textField("matchUpCle"),
             analysis.textField("reponseStrategique"),
+        )
+        addCloudSection(
+            "🔥 Points qui comptent vraiment",
+            analysis.textField("pointsQuiComptent"),
             analysis.textField("avantagesExploitables"),
             analysis.textField("avantagesNeutralises"),
         )
         addCloudSection(
-            "Favori fragile / outsider crédible",
-            analysis.textField("dangerAdversaire"),
+            "🎯 Scénario principal",
+            analysis.textField("scenarioPrincipal"),
+            analysis.textField("scoreProbable").takeIf { it.isNotBlank() }?.let { "Score / état probable : $it" }.orEmpty(),
+        )
+        addCloudSection(
+            "🔁 Scénario alternatif",
             analysis.textField("scenarioAlternatif"),
         )
         addCloudSection(
-            "Conclusion argumentée",
-            analysis.textField("scenarioPrincipal"),
-            analysis.textField("pointsASurveiller"),
-            analysis.textField("niveauRisque").takeIf { it.isNotBlank() }?.let { "Niveau de risque : $it" }.orEmpty(),
-        )
-        addCloudSection(
-            "Sources & limites",
-            analysis.textField("sourcesUtilisees").takeIf { it.isNotBlank() }?.let { "Sources utilisées : $it" }.orEmpty(),
-            analysis.textField("donneesManquantes").takeIf { it.isNotBlank() }?.let { "Données manquantes : $it" }.orEmpty(),
-            analysis.textField("erreursOuLimites"),
-        )
-        addCloudSection(
-            "Accord entre IA",
-            analysis.textField("accordEntreIA"),
-            modelResponsesSummary(analysis),
+            "📊 Confiance IA",
+            analysis.textField("confianceTexte"),
+            confidence.takeIf { it > 0 }?.let { "$it/100" }.orEmpty(),
+            analysis.textField("donneesManquantes").takeIf { it.isNotBlank() }?.let { "À vérifier : $it" }.orEmpty(),
         )
     }.filter { it.lines.isNotEmpty() }
 
@@ -389,22 +398,23 @@ private fun cloudAiReadingOrNull(prediction: PredictionEntity): CloudAiReading? 
         providerLabel = providerLabel,
         headline = headline.ifBlank { "Analyse enrichie disponible." },
         confidenceLabel = confidence.takeIf { it > 0 }?.let { "$it/100" }.orEmpty(),
-        sections = sections.take(6),
-        diagnosticLines = cloudAiDiagnosticLines(diagnostic),
+        sections = sections.take(8),
+        diagnosticLines = cloudAiDiagnosticLines(analysis, diagnostic),
     )
 }
 
 private fun MutableList<CloudAiSection>.addCloudSection(title: String, vararg rawLines: String) {
     val lines = rawLines
         .flatMap(::splitCloudAiLine)
-        .map(::cleanDisplayText)
-        .filter { it.isNotBlank() && !it.equals("undefined", ignoreCase = true) }
+        .map(::cleanCloudAiDisplayText)
+        .filter(::isUsefulCloudAiLine)
         .distinctBy { it.canonicalNameKey() }
         .take(4)
     if (lines.isNotEmpty()) add(CloudAiSection(title, lines))
 }
 
 private fun splitCloudAiLine(value: String): List<String> {
+    value.toHumanProbabilityLineOrNull()?.let { return listOf(it) }
     val cleaned = cleanDisplayText(value)
         .replace(" · ", "\n")
         .replace(" ; ", "\n")
@@ -418,44 +428,73 @@ private fun splitCloudAiLine(value: String): List<String> {
         .ifEmpty { listOf(cleaned.take(260)) }
 }
 
-private fun cloudAiDiagnosticLines(diagnostic: JsonObject?): List<String> {
+private fun cloudAiDiagnosticLines(analysis: JsonObject, diagnostic: JsonObject?): List<String> {
     if (diagnostic == null) return emptyList()
-    val active = diagnostic.textListField("iaGratuitesActivees")
     val called = diagnostic.textListField("iaAppelees")
     val responded = diagnostic.textListField("iaRepondues")
     val errors = diagnostic.textListField("iaEnErreur")
-    val paidDisabled = diagnostic.textListField("iaPayantesDesactivees")
     return buildList {
-        add("IA gratuites actives : ${active.joinToString(", ").ifBlank { "aucune clé gratuite configurée, secours local" }}")
-        if (called.isNotEmpty() || responded.isNotEmpty()) {
-            add("Appel IA : ${responded.size}/${called.size.coerceAtLeast(responded.size)} réponse(s), mode ${diagnostic.textField("mode").ifBlank { "automatique" }}.")
-        }
-        add("Fusion : ${if (diagnostic.booleanField("fusionFaite")) "faite" else "non faite"} · fallback : ${if (diagnostic.booleanField("fallbackUtilise")) "oui" else "non"} · coût : ${diagnostic.textField("coutEstime").ifBlank { "0 €" }}.")
-        if (diagnostic.booleanField("quotaAtteint")) add("Quota gratuit atteint : l’app garde le cache et le secours local.")
-        if (errors.isNotEmpty()) add("Erreurs IA : ${errors.take(2).joinToString(" | ")}")
-        if (paidDisabled.isNotEmpty()) add("IA payantes désactivées : ${paidDisabled.take(3).joinToString(", ")}.")
+        val model = responded.joinToString(" + ").ifBlank { analysis.textField("modeleUtilise") }
+        if (model.isNotBlank()) add("IA utilisée : $model")
+        val sources = analysis.textField("sourcesUtilisees")
+        if (sources.isNotBlank()) add("Sources sport : $sources")
+        if (called.isNotEmpty() || responded.isNotEmpty()) add("Réponses cloud : ${responded.size}/${called.size.coerceAtLeast(responded.size)}")
+        if (errors.isNotEmpty()) add("Limite actuelle : ${errors.take(1).joinToString(" | ")}")
         val date = diagnostic.textField("dateGeneration")
         if (date.isNotBlank()) add("Dernière génération : $date")
-    }.map(::cleanDisplayText).take(6)
+    }.map(::cleanCloudAiDisplayText).filter(::isUsefulCloudAiLine).take(4)
 }
 
-private fun modelResponsesSummary(analysis: JsonObject): String {
-    val responses = analysis.get("reponsesModeles")
-        ?.takeIf { it.isJsonArray }
-        ?.asJsonArray
-        ?.toList()
-        .orEmpty()
-    if (responses.isEmpty()) return ""
-    return responses.take(3).joinToString(" · ") { item ->
-        val obj = item.asJsonObjectOrNull()
-        val provider = obj?.textField("provider").orEmpty().ifBlank { "IA" }
-        val confidence = obj?.intField("confianceIA") ?: 0
-        val scenario = obj?.textField("scenarioPrincipal").orEmpty()
-        listOf(provider, confidence.takeIf { it > 0 }?.let { "$it/100" }, scenario.takeIf { it.isNotBlank() })
-            .filterNotNull()
-            .joinToString(" : ")
-    }
+private fun cloudParticipantLabel(selection: String, prediction: PredictionEntity): String =
+    listOf(prediction.homeTeam, prediction.awayTeam)
+        .map(::displayTeamName)
+        .firstOrNull { selection.contains(it, ignoreCase = true) }
+        ?: cleanDisplayText(selection).substringBefore("(").trim().takeIf { it.isNotBlank() }
+        ?: "favori"
+
+private fun cloudOutsiderLabel(prediction: PredictionEntity): String {
+    val favorite = cloudParticipantLabel(prediction.selection, prediction).canonicalNameKey()
+    return listOf(prediction.homeTeam, prediction.awayTeam)
+        .map(::displayTeamName)
+        .firstOrNull { it.isNotBlank() && !it.canonicalNameKey().let(favorite::contains) }
+        ?: "outsider"
 }
+
+private fun cleanCloudAiDisplayText(value: String): String =
+    cleanDisplayText(value)
+        .replaceRawCloudProbabilities()
+        .replace("0 €", "zéro euro")
+        .trim()
+
+private fun isUsefulCloudAiLine(value: String): Boolean {
+    val text = cleanDisplayText(value).lowercase(Locale.FRANCE)
+    return text.isNotBlank() &&
+        text != "undefined" &&
+        text != "null" &&
+        !text.matches(Regex("""0[,.]\d{3,}""")) &&
+        !text.contains("architecture") &&
+        !text.contains("analyse locale sans clé") &&
+        !text.contains("fallback local") &&
+        !text.contains("secours local") &&
+        !text.contains("simple pourcentage") &&
+        !text.contains("doit être lu comme une conclusion")
+}
+
+private fun String.toHumanProbabilityLineOrNull(): String? {
+    val parts = split('|').map(::cleanDisplayText)
+    if (parts.size < 3) return null
+    val probability = parts[2].replace(',', '.').toDoubleOrNull()?.coerceIn(0.0, 1.0) ?: return null
+    val percent = String.format(Locale.FRANCE, "%.0f %%", probability * 100)
+    return listOf(parts[1], parts[0].takeIf { it.isNotBlank() }?.let { "($it)" }, percent)
+        .filterNotNull()
+        .joinToString(" — ")
+}
+
+private fun String.replaceRawCloudProbabilities(): String =
+    Regex("""(?<!\d)0[,.](\d{3,})(?!\d)""").replace(this) { match ->
+        val number = "0.${match.groupValues[1]}".toDoubleOrNull()
+        if (number != null) String.format(Locale.FRANCE, "%.0f %%", number * 100) else match.value
+    }
 
 private fun String.parseCloudJsonObjectOrNull(): JsonObject? =
     runCatching { JsonParser.parseString(this).asJsonObjectOrNull() }.getOrNull()
@@ -1653,16 +1692,16 @@ private fun CloudAiReadingCard(reading: CloudAiReading, accent: Color) {
 
             reading.sections.forEach { section ->
                 val color = when {
-                    section.title.contains("Favori", ignoreCase = true) -> Amber
-                    section.title.contains("Conclusion", ignoreCase = true) -> accent
-                    section.title.contains("Sources", ignoreCase = true) -> Blue
-                    section.title.contains("Accord", ignoreCase = true) -> Violet
+                    section.title.contains("Avantage", ignoreCase = true) -> Amber
+                    section.title.contains("Danger", ignoreCase = true) -> Danger
+                    section.title.contains("Scénario", ignoreCase = true) -> accent
+                    section.title.contains("Confiance", ignoreCase = true) -> Blue
                     else -> Mint
                 }
                 LocalAiMiniBlock(section.title, section.lines, color, maxLines = 4)
             }
             if (reading.diagnosticLines.isNotEmpty()) {
-                LocalAiMiniBlock("Transparence IA", reading.diagnosticLines, Blue, maxLines = 6)
+                LocalAiMiniBlock("Sources IA", reading.diagnosticLines, Blue, maxLines = 4)
             }
         }
     }
@@ -1672,7 +1711,9 @@ private fun CloudAiReadingCard(reading: CloudAiReading, accent: Color) {
 private fun LocalAiReadingCard(reading: LocalAiReading, accent: Color) {
     val analyticalSections = reading.sections
         .filterNot { it.title == "Résumé rapide" }
-        .take(8)
+        .filterNot { it.title.contains("Sources & transparence", ignoreCase = true) }
+        .filterNot { it.title.contains("Scénarios calculés", ignoreCase = true) }
+        .take(5)
     Surface(shape = RoundedCornerShape(22.dp), color = accent.copy(alpha = 0.10f)) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
             Row(
@@ -1681,7 +1722,7 @@ private fun LocalAiReadingCard(reading: LocalAiReading, accent: Color) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Tag(reading.status.label, accent)
-                Text("local · sans clé API", style = MaterialTheme.typography.labelMedium, color = TextSecondary)
+                Text("en attente IA cloud", style = MaterialTheme.typography.labelMedium, color = TextSecondary)
             }
             Text(cleanDisplayText(reading.summary), style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
             Text(cleanDisplayText(reading.sportVocabulary), style = MaterialTheme.typography.labelMedium, color = TextSecondary)
@@ -1697,12 +1738,11 @@ private fun LocalAiReadingCard(reading: LocalAiReading, accent: Color) {
                 }
                 val max = when {
                     section.title.contains("conclusion", ignoreCase = true) -> 5
-                    section.title.contains("transparence", ignoreCase = true) -> 6
                     else -> 4
                 }
                 LocalAiMiniBlock(section.title, section.lines, color, maxLines = max)
             }
-            Text(cleanDisplayText(reading.conclusion), style = MaterialTheme.typography.bodyMedium, color = accent, fontWeight = FontWeight.Bold)
+            Text(cleanCloudAiDisplayText(reading.conclusion), style = MaterialTheme.typography.bodyMedium, color = accent, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -1713,7 +1753,7 @@ private fun LocalAiMiniBlock(title: String, lines: List<String>, color: Color, m
         Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(title, style = MaterialTheme.typography.labelLarge, color = color, fontWeight = FontWeight.Black)
             lines.take(maxLines).forEach { line ->
-                Text("• ${cleanDisplayText(line)}", color = TextSecondary, style = MaterialTheme.typography.bodyMedium)
+                Text("• ${cleanCloudAiDisplayText(line)}", color = TextSecondary, style = MaterialTheme.typography.bodyMedium)
             }
         }
     }

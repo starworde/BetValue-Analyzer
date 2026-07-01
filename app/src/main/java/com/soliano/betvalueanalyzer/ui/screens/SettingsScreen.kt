@@ -388,7 +388,7 @@ internal fun sourceHealthRows(state: AppUiState, language: String): List<SourceH
             if (state.settings.cloudJobSourceErrors > 0 || state.settings.cloudJobSourceErrorDetails.isNotBlank()) Danger else Mint,
         ),
         SourceHealthRow(
-            "IA gratuites actives",
+            "IA cloud active",
             aiFreeProvidersLabel(state.settings, language),
             if (state.settings.aiFreeEnabled.isEmpty()) Blue else Mint,
         ),
@@ -472,10 +472,10 @@ private fun aiFreeProvidersLabel(settings: UserSettings, language: String): Stri
         ?.joinToString(", ")
         ?: t(
             language,
-            "Aucune clé gratuite configurée · secours local",
-            "No free key configured · local fallback",
-            "Ninguna clave gratuita configurada · respaldo local",
-            "Kein kostenloser Schlüssel konfiguriert · lokaler Fallback",
+            "En attente de réponse cloud",
+            "Waiting for cloud response",
+            "Esperando respuesta cloud",
+            "Warte auf Cloud-Antwort",
         )
 
 private fun aiFusionLabel(settings: UserSettings): String = listOf(
@@ -483,7 +483,7 @@ private fun aiFusionLabel(settings: UserSettings): String = listOf(
     "${settings.aiResponded}/${settings.aiCalled.coerceAtLeast(settings.aiResponded)} réponse(s)",
     "${settings.aiFusionCount} fusion(s)",
     "${settings.aiCacheHits} cache",
-    "${settings.aiFallbackUsed} fallback",
+    "${settings.aiFallbackUsed} pré-analyse(s) locale(s)",
 ).joinToString(" · ")
 
 private fun aiErrorsLabel(settings: UserSettings, language: String): String {

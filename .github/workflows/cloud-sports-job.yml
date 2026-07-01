@@ -14,6 +14,7 @@ on:
 
 permissions:
   contents: read
+  models: read
 
 jobs:
   cloud-sports-job:
@@ -46,6 +47,9 @@ jobs:
           AI_MODE: "automatic"
           MAX_AI_EVENTS: "18"
           AI_CACHE_TTL_HOURS: "12"
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_MODELS_ENABLED: "1"
+          GITHUB_MODELS_MODEL: ${{ vars.GITHUB_MODELS_MODEL }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
