@@ -38,7 +38,7 @@ Fournisseurs payants directs désactivés dans le diagnostic : clés OpenAI/Clau
 ## Variables utiles
 
 - `AI_MODE` : `automatic`, `economique`, `double`, `renforce` ou `complet`.
-- `MAX_AI_EVENTS` : nombre maximal d’événements enrichis par IA externe par run.
+- `MAX_AI_EVENTS` : nombre maximal d’événements enrichis par IA externe par run. Le workflow garde un petit batch pour rester sous les quotas gratuits GitHub Models.
 - `AI_CACHE_TTL_HOURS` : durée de réutilisation du cache IA Firestore.
 - `EVENT_LOOKAHEAD_DAYS` : horizon calendrier.
 - `MAX_RESULTS_TO_WRITE` : limite d’écriture Firestore par run.
@@ -69,4 +69,4 @@ Le workflow GitHub déploie `../firestore.rules` via `deploy-rules.mjs` et le Fi
 - `aiCalled`, `aiResponded`, `aiErrors`, `aiCacheHits`, `aiFusionCount`, `aiFallbackUsed`, `aiQuotaReached`.
 - `aiRequestsRead`, `aiRequestsMatched`, `aiRequestsCompleted` pour contrôler l’effet des favoris sur la file IA.
 
-Si aucune IA cloud ne répond, le job peut encore écrire une pré‑analyse locale, mais l’application ne la présente pas comme une vraie réponse IA cloud.
+Si aucune IA cloud ne répond, le job conserve le résultat sans fausse analyse IA. L’application affiche alors l’analyse IA comme indisponible/en attente au lieu de réutiliser un résumé local.

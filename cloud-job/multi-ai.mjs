@@ -101,19 +101,16 @@ export async function enrichResultsWithMultiAi({
       output.push(result);
       continue;
     }
+    if (diagnostics.aiQuotaReached) {
+      output.push(result);
+      continue;
+    }
     targetIndex += 1;
 
     if (providers.length === 0) {
       diagnostics.aiFallbackUsed += 1;
-      console.log(`[ai] ${targetIndex}/${targets.length} pré-analyse locale ${compactAiText(result.eventName || result.eventId, 90)}`);
-      output.push(applyAiBundle(result, buildLocalAiFallback({
-        result,
-        event,
-        newsContext,
-        reason: "Analyse locale utilisée, IA externe indisponible.",
-        providers,
-        called: [],
-      })));
+      console.log(`[ai] ${targetIndex}/${targets.length} IA externe indisponible, résultat conservé sans fausse analyse ${compactAiText(result.eventName || result.eventId, 90)}`);
+      output.push(result);
       continue;
     }
 
@@ -145,17 +142,8 @@ export async function enrichResultsWithMultiAi({
 
     if (providerResponses.length === 0) {
       diagnostics.aiFallbackUsed += 1;
-      console.log(`[ai] ${targetIndex}/${targets.length} aucune réponse IA, pré-analyse locale`);
-      output.push(applyAiBundle(result, buildLocalAiFallback({
-        result,
-        event,
-        newsContext,
-        reason: "Analyse locale utilisée, IA externe indisponible ou quota atteint.",
-        providers,
-        called: selectedProviders,
-        errors: providerErrors,
-        responseMs: Date.now() - startedAt,
-      })));
+      console.log(`[ai] ${targetIndex}/${targets.length} aucune réponse IA, résultat conservé sans fausse analyse`);
+      output.push(result);
       continue;
     }
 

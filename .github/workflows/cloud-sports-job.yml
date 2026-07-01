@@ -12,8 +12,8 @@ on:
       - ".firebaserc"
       - ".github/workflows/cloud-sports-job.yml"
   schedule:
-    # UTC. Check automatique toutes les 2 heures avec cache Firestore/IA pour rester compatible quota gratuit.
-    - cron: "0 */2 * * *"
+    # UTC. Check automatique toutes les heures avec cache Firestore/IA pour rester compatible quota gratuit.
+    - cron: "0 * * * *"
 
 permissions:
   contents: read
@@ -55,7 +55,7 @@ jobs:
           MAX_RESULTS_TO_WRITE: "900"
           MAX_REMOVED_SPORT_DELETES: "120"
           AI_MODE: "automatic"
-          MAX_AI_EVENTS: "32"
+          MAX_AI_EVENTS: "3"
           AI_TARGET_POOL_SIZE: "320"
           AI_CACHE_TTL_HOURS: "12"
           AI_HTTP_TIMEOUT_MS: "12000"

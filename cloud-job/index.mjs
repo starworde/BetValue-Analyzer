@@ -243,7 +243,7 @@ async function main() {
   });
   diagnostics.resultsPrepared = results.length;
   diagnostics.resultsBySport = countBy(results, (result) => result.sport);
-  console.log(`[cloud] IA: appelées=${diagnostics.aiCalled}, réponses=${diagnostics.aiResponded}, cache=${diagnostics.aiCacheHits}, pré-analyses=${diagnostics.aiFallbackUsed}`);
+  console.log(`[cloud] IA: appelées=${diagnostics.aiCalled}, réponses=${diagnostics.aiResponded}, cache=${diagnostics.aiCacheHits}, sans analyse cloud=${diagnostics.aiFallbackUsed}`);
   try {
     console.log("[cloud] nettoyage sports retirés…");
     await deleteRemovedSports(db);

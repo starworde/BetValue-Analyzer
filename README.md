@@ -2,7 +2,7 @@
 
 Application Android + web app de suivi sportif et d’analyse pré‑match/live. Elle récupère automatiquement les événements publics, consolide les statistiques utiles par sport, puis affiche des pronostics et une lecture “Analyste IA” quand des données suffisantes existent.
 
-Le projet ne contient aucune clé IA ni secret Firebase dans l’APK. Les enrichissements IA se font côté GitHub Actions via GitHub Models + Firestore, avec cache et pré‑analyse locale seulement si l’IA cloud ne répond pas.
+Le projet ne contient aucune clé IA ni secret Firebase dans l’APK. Les enrichissements IA se font côté GitHub Actions via GitHub Models + Firestore, avec cache. Si l’IA cloud ne répond pas, l’app préfère afficher “analyse IA en attente” plutôt qu’une fausse analyse locale.
 
 ## Ce que fait l’application
 
@@ -28,7 +28,7 @@ La couche IA est conçue pour raisonner, pas seulement reformuler les statistiqu
 - fusion des réponses quand plusieurs IA répondent ;
 - stockage Firestore avec durée de cache ;
 - affichage Android en cartes courtes et lisibles ;
-- pré‑analyse locale uniquement si l’IA cloud ne répond pas, affichée comme telle.
+- pas de fausse réponse IA : une analyse plate, locale ou sans provider cloud est rejetée.
 
 Fournisseur IA cloud par défaut :
 
