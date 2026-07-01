@@ -313,7 +313,7 @@ fun PredictionEntity.toCloudAiAnalysisRequest(
     val favoriteWeight = (if (competitionFavorite) 90 else 0) + (if (sportFavorite) 55 else 0)
     val event = listOf(homeTeam, awayTeam)
         .filter { it.isNotBlank() }
-        .joinToString(" â€” ")
+        .joinToString(" — ")
         .ifBlank { competitionName }
     return CloudAiAnalysisRequest(
         eventId = eventId.trimCloudText(220),
@@ -362,7 +362,7 @@ fun UpcomingEventEntity.toCloudAiAnalysisRequest(
         else -> 0
     }
     val compactEventName = eventName.ifBlank {
-        listOf(participantA, participantB).filter { it.isNotBlank() }.joinToString(" â€” ")
+        listOf(participantA, participantB).filter { it.isNotBlank() }.joinToString(" — ")
     }.ifBlank { competitionName }
     return CloudAiAnalysisRequest(
         eventId = id.trimCloudText(220),
