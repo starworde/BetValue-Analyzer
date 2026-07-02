@@ -824,8 +824,10 @@ private fun CloudSharedResult.cloudIdentityKey(): String =
 private fun PredictionEntity.fuzzyMatches(cloud: CloudSharedResult): Boolean {
     if (!sportKey.substringBefore('/').cloudTextKey().equals(cloud.sport.cloudTextKey(), ignoreCase = true)) return false
     if (abs(commenceTime - cloud.eventDate) > 45 * 60 * 1000L) return false
-    if (!competitionName.cloudCompatibleWith(cloud.competition)) return false
-    return participantPairKey() == cloud.participantPairKey()
+    val localPair = participantPairKey()
+    val cloudPair = cloud.participantPairKey()
+    if (localPair.isNotBlank() && cloudPair.isNotBlank()) return localPair == cloudPair
+    return competitionName.cloudCompatibleWith(cloud.competition)
 }
 
 private fun PredictionEntity.participantPairKey(): String =

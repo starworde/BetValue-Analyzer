@@ -404,10 +404,10 @@ function aiRequestMatchesResult(request, result, event) {
   const requestDate = Number(request.eventDate || 0);
   const resultDate = Number(result.eventDate || event?.eventDate || 0);
   if (!requestDate || !resultDate || Math.abs(requestDate - resultDate) > 90 * 60 * 1000) return false;
-  if (!textCompatible(request.competition, result.competition || event?.competition)) return false;
   const requestPair = participantPairKey([request.participantA, request.participantB]);
   const resultPair = participantPairKey([result.homeTeam || event?.homeTeam, result.awayTeam || event?.awayTeam]);
   if (requestPair && resultPair) return requestPair === resultPair;
+  if (!textCompatible(request.competition, result.competition || event?.competition)) return false;
   return textCompatible(request.eventName, result.eventName || event?.eventName);
 }
 

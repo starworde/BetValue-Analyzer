@@ -151,6 +151,36 @@ class CloudCollaborativeRulesTest {
     }
 
     @Test
+    fun `competition traduite ne bloque pas le rattachement IA si participants et date correspondent`() {
+        val local = prediction().copy(
+            eventId = "local-provider:spain-austria",
+            competitionName = "Coupe du monde FIFA",
+            homeTeam = "Spain",
+            awayTeam = "Austria",
+            sourceLastUpdate = now,
+            aiAnalysis = "",
+            aiDiagnostic = "",
+            aiGeneratedAt = 0L,
+        )
+        val cloud = prediction().copy(
+            eventId = "espn:soccer:all:401-spain-austria",
+            competitionName = "FIFA World Cup",
+            homeTeam = "Spain",
+            awayTeam = "Austria",
+            sourceLastUpdate = now - 5_000L,
+            aiAnalysis = validAiAnalysis("IA rattachee malgre competition traduite"),
+            aiDiagnostic = """{"iaRepondues":["GitHub Models via Actions"]}""",
+            aiGeneratedAt = now - 4_000L,
+        ).toCloudSharedResult("5.2.0", "github-actions", now)!!
+
+        val merge = mergeCloudResults(listOf(local), listOf(cloud), now)
+        val merged = merge.predictionsToUpsert.single()
+
+        assertEquals(local.id, merged.id)
+        assertTrue(merged.aiAnalysis.contains("competition traduite"))
+    }
+
+    @Test
     fun `validation IA refuse fallback provider zero et JSON invalide`() {
         assertTrue(validAiAnalysis("Vraie IA").hasValidCloudAiAnalysis())
         assertFalse("""{"source":"local-preanalysis","providerCount":1,"lectureRapide":"fallback"}""".hasValidCloudAiAnalysis())
