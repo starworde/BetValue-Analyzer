@@ -95,8 +95,21 @@ class CloudCollaborativeRepository(
                 favoriteCompetitions = settings.favoriteCompetitions,
                 forceOpenedPriority = true,
             ) ?: return@runCatching CloudAiRequestOutcome.NotQueued("prediction non coherente ou IA deja fraiche")
-            val written = remoteDataSource.publishAiAnalysisRequests(listOf(request))
-            if (written > 0) CloudAiRequestOutcome.Requested else CloudAiRequestOutcome.NotQueued("demande IA deja presente ou refusee")
+            val written = runCatching { remoteDataSource.publishAiAnalysisRequests(listOf(request)) }.getOrDefault(0)
+            if (written > 0) {
+                CloudAiRequestOutcome.Requested
+            } else {
+                val sharedSignal = prediction.copy(sourceLastUpdate = now)
+                    .toCloudSharedResult(appVersion, deviceId, now)
+                val sharedWritten = sharedSignal?.let { signal ->
+                    runCatching { remoteDataSource.publishAiSharedSignals(listOf(signal)) }.getOrDefault(0)
+                } ?: 0
+                if (sharedWritten > 0) {
+                    CloudAiRequestOutcome.Requested
+                } else {
+                    CloudAiRequestOutcome.NotQueued("demande IA refusee et signal partage impossible")
+                }
+            }
         }.getOrElse { error ->
             CloudAiRequestOutcome.Failed(cloudCollaborativeErrorMessage(error))
         }
@@ -403,6 +416,7 @@ interface CloudCollaborativeRemoteDataSource {
     fun isAvailable(): Boolean
     fun anonymousDeviceId(): String
     fun publish(results: List<CloudSharedResult>): Int
+    fun publishAiSharedSignals(results: List<CloudSharedResult>): Int
     fun publishCalendarEvents(events: List<CloudSharedCalendarEvent>): Int
     fun publishAiAnalysisRequests(requests: List<CloudAiAnalysisRequest>): Int
     fun fetchByEventIds(eventIds: Set<String>, now: Long): List<CloudSharedResult>
@@ -453,6 +467,29 @@ class FirebaseCloudCollaborativeRemoteDataSource(
             chunk.forEach { result ->
                 batch.set(
                     collection.document(cloudDocumentIdFor(result.eventId)),
+                    result.toFirestoreMap(),
+                    SetOptions.merge(),
+                )
+            }
+            Tasks.await(batch.commit(), 15, TimeUnit.SECONDS)
+        }
+        return publishable.size
+    }
+
+    override fun publishAiSharedSignals(results: List<CloudSharedResult>): Int {
+        if (results.isEmpty()) return 0
+        val firestore = firestoreOrNull() ?: return 0
+        val now = System.currentTimeMillis()
+        val collection = firestore.collection("shared_results")
+        val publishable = results
+            .filter { it.isCoherent(now) }
+            .distinctBy { cloudAiRequestDocumentIdFor(it.deviceId, it.eventId) }
+        if (publishable.isEmpty()) return 0
+        publishable.chunked(CLOUD_FIRESTORE_BATCH_LIMIT).forEach { chunk ->
+            val batch = firestore.batch()
+            chunk.forEach { result ->
+                batch.set(
+                    collection.document(cloudAiRequestDocumentIdFor(result.deviceId, result.eventId)),
                     result.toFirestoreMap(),
                     SetOptions.merge(),
                 )

@@ -143,6 +143,7 @@ const diagnostics = {
   aiFallbackUsed: 0,
   aiQuotaReached: false,
   aiRequestsRead: 0,
+  aiSharedRequestsRead: 0,
   aiRequestsMatched: 0,
   aiRequestsCompleted: 0,
 };
@@ -220,6 +221,7 @@ async function main() {
       aiFallbackUsed: diagnostics.aiFallbackUsed,
       aiQuotaReached: diagnostics.aiQuotaReached,
       aiRequestsRead: diagnostics.aiRequestsRead,
+      aiSharedRequestsRead: diagnostics.aiSharedRequestsRead,
       aiRequestsMatched: diagnostics.aiRequestsMatched,
       aiRequestsCompleted: diagnostics.aiRequestsCompleted,
       sampleEvents: results.slice(0, 8).map((result) => ({
@@ -281,6 +283,7 @@ async function main() {
         aiFallbackUsed: diagnostics.aiFallbackUsed,
         aiQuotaReached: diagnostics.aiQuotaReached,
         aiRequestsRead: diagnostics.aiRequestsRead,
+        aiSharedRequestsRead: diagnostics.aiSharedRequestsRead,
         aiRequestsMatched: diagnostics.aiRequestsMatched,
         aiRequestsCompleted: diagnostics.aiRequestsCompleted,
       }, null, 2));
@@ -316,6 +319,7 @@ async function main() {
     aiFallbackUsed: diagnostics.aiFallbackUsed,
     aiQuotaReached: diagnostics.aiQuotaReached,
     aiRequestsRead: diagnostics.aiRequestsRead,
+    aiSharedRequestsRead: diagnostics.aiSharedRequestsRead,
     aiRequestsMatched: diagnostics.aiRequestsMatched,
     aiRequestsCompleted: diagnostics.aiRequestsCompleted,
   }, null, 2));
@@ -979,6 +983,7 @@ async function writeDiagnostic(db, extra = {}) {
     aiFallbackUsed: diagnostics.aiFallbackUsed,
     aiQuotaReached: diagnostics.aiQuotaReached,
     aiRequestsRead: diagnostics.aiRequestsRead,
+    aiSharedRequestsRead: diagnostics.aiSharedRequestsRead,
     aiRequestsMatched: diagnostics.aiRequestsMatched,
     aiRequestsCompleted: diagnostics.aiRequestsCompleted,
     error: extra.error || "",

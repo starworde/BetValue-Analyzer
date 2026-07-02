@@ -390,6 +390,7 @@ function aiPriorityScore(result, event, mode, aiRequest = null) {
 async function loadAiRequests(db, diagnostics) {
   try {
     const now = Date.now();
+    const implicitRequests = await loadSharedAiRequestSignals(db, diagnostics, now);
     let snapshot;
     try {
       snapshot = await db.collection("ai_requests")
@@ -410,8 +411,11 @@ async function loadAiRequests(db, diagnostics) {
       .filter((request) => String(request.eventId || "").trim())
       .filter((request) => Number(request.eventDate || 0) >= now - 48 * 60 * 60 * 1000)
       .sort((a, b) => Number(b.priority || 0) - Number(a.priority || 0));
+    const merged = mergeAiRequests(requests, implicitRequests)
+      .sort((a, b) => Number(b.priority || 0) - Number(a.priority || 0));
     diagnostics.aiRequestsRead = requests.length;
-    return requests;
+    diagnostics.aiSharedRequestsRead = implicitRequests.length;
+    return merged;
   } catch (error) {
     diagnostics.aiRequestsRead = 0;
     diagnostics.aiErrors.push(`ai_requests:${compactAiText(error?.message || String(error), 160)}`);
@@ -419,8 +423,55 @@ async function loadAiRequests(db, diagnostics) {
   }
 }
 
+async function loadSharedAiRequestSignals(db, diagnostics, now) {
+  try {
+    const snapshot = await db.collection("shared_results")
+      .orderBy("updatedAt", "desc")
+      .limit(AI_REQUEST_POOL_SIZE)
+      .get();
+    return snapshot.docs
+      .map((doc) => ({ id: `shared:${doc.id}`, ...doc.data() }))
+      .filter((request) => request.documentType === "prediction")
+      .filter((request) => !isUsableExternalAiCache(request.aiAnalysis))
+      .filter((request) => Number(request.updatedAt || 0) >= now - 2 * 60 * 60 * 1000)
+      .filter((request) => Number(request.expiresAt || 0) > now)
+      .filter((request) => String(request.eventId || "").trim())
+      .filter((request) => Number(request.eventDate || 0) >= now - 48 * 60 * 60 * 1000)
+      .map((request) => ({
+        id: request.id,
+        eventId: request.eventId,
+        sport: request.sport,
+        competition: request.competition,
+        eventName: request.eventName,
+        eventDate: Number(request.eventDate || 0),
+        participantA: request.homeTeam,
+        participantB: request.awayTeam,
+        priority: 185,
+        reason: "opened_event_priority",
+        source: "shared_results",
+      }));
+  } catch (error) {
+    diagnostics.aiSharedRequestsRead = 0;
+    diagnostics.aiErrors.push(`shared_requests:${compactAiText(error?.message || String(error), 160)}`);
+    return [];
+  }
+}
+
+function mergeAiRequests(explicitRequests, implicitRequests) {
+  const byEventId = new Map();
+  for (const request of [...implicitRequests, ...explicitRequests]) {
+    const key = String(request.eventId || "");
+    if (!key) continue;
+    const previous = byEventId.get(key);
+    if (!previous || Number(request.priority || 0) > Number(previous.priority || 0)) {
+      byEventId.set(key, request);
+    }
+  }
+  return Array.from(byEventId.values());
+}
+
 async function markAiRequestsDone(db, requestIds, diagnostics) {
-  const ids = Array.from(requestIds).filter(Boolean);
+  const ids = Array.from(requestIds).filter((id) => id && !String(id).startsWith("shared:"));
   if (ids.length === 0) return 0;
   let completed = 0;
   for (const chunk of chunked(ids, 450)) {
