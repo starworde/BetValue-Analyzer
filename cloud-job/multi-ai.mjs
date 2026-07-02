@@ -2,6 +2,9 @@ const AI_CACHE_TTL_MS = Number.parseInt(process.env.AI_CACHE_TTL_HOURS ?? "12", 
 const MAX_AI_EVENTS = Number.parseInt(process.env.MAX_AI_EVENTS ?? "18", 10);
 const AI_TARGET_POOL_SIZE = Number.parseInt(process.env.AI_TARGET_POOL_SIZE ?? String(Math.max(MAX_AI_EVENTS * 8, 120)), 10);
 const AI_HTTP_TIMEOUT_MS = Number.parseInt(process.env.AI_HTTP_TIMEOUT_MS ?? "22000", 10);
+const AI_REQUEST_POOL_SIZE = Number.parseInt(process.env.AI_REQUEST_POOL_SIZE ?? "80", 10);
+const AI_CACHE_ENABLED = process.env.AI_CACHE_ENABLED === "1";
+const AI_REQUIRE_REQUESTS = process.env.AI_REQUIRE_REQUESTS === "1";
 const MAX_AI_FIELD = 520;
 
 const REQUIRED_JSON_KEYS = [
@@ -73,7 +76,7 @@ export async function enrichResultsWithMultiAi({
   const candidates = selectAiTargets(results, eventsById, diagnostics.aiMode, providers.length > 0, AI_TARGET_POOL_SIZE, aiRequests);
   diagnostics.aiRequestsMatched = candidates.filter((result) => findAiRequestForResult(result, eventsById.get(result.eventId), aiRequests)).length;
   const cacheProbeLimit = Math.min(candidates.length, Math.max(aiBudget * 8, 48));
-  const cached = db ? await loadAiCache(db, candidates.slice(0, cacheProbeLimit), diagnostics) : new Map();
+  const cached = db && AI_CACHE_ENABLED ? await loadAiCache(db, candidates.slice(0, cacheProbeLimit), diagnostics) : new Map();
   const targets = candidates
     .filter((result) => !cached.has(result.eventId))
     .slice(0, aiBudget);
@@ -309,8 +312,9 @@ function selectAiTargets(results, eventsById, mode, hasProviders, limit = null, 
     .map((result) => {
       const event = eventsById.get(result.eventId);
       const request = findAiRequestForResult(result, event, aiRequests);
-      return { result, score: aiPriorityScore(result, event, mode, request) };
+      return { result, request, score: aiPriorityScore(result, event, mode, request) };
     })
+    .filter((entry) => !AI_REQUIRE_REQUESTS || entry.request)
     .sort((a, b) => b.score - a.score || a.result.eventDate - b.result.eventDate)
     .slice(0, hardLimit)
     .map((entry) => entry.result);
@@ -340,13 +344,23 @@ function aiPriorityScore(result, event, mode, aiRequest = null) {
 async function loadAiRequests(db, diagnostics) {
   try {
     const now = Date.now();
-    const snapshot = await db.collection("ai_requests")
-      .where("expiresAt", ">", now)
-      .limit(300)
-      .get();
+    let snapshot;
+    try {
+      snapshot = await db.collection("ai_requests")
+        .orderBy("updatedAt", "desc")
+        .limit(AI_REQUEST_POOL_SIZE)
+        .get();
+    } catch (recentError) {
+      diagnostics.aiErrors.push(`ai_requests_recent:${compactAiText(recentError?.message || String(recentError), 160)}`);
+      snapshot = await db.collection("ai_requests")
+        .where("expiresAt", ">", now)
+        .limit(AI_REQUEST_POOL_SIZE)
+        .get();
+    }
     const requests = snapshot.docs
       .map((doc) => ({ id: doc.id, ...doc.data() }))
       .filter((request) => request.status === "pending")
+      .filter((request) => Number(request.expiresAt || 0) > now)
       .filter((request) => String(request.eventId || "").trim())
       .filter((request) => Number(request.eventDate || 0) >= now - 48 * 60 * 60 * 1000)
       .sort((a, b) => Number(b.priority || 0) - Number(a.priority || 0));

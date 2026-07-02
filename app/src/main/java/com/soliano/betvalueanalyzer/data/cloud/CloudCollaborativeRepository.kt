@@ -107,7 +107,9 @@ class CloudCollaborativeRepository(
             // Garantit que la lecture Firestore respecte les règles auth anonyme,
             // même si l'app n'a pas encore publié de données dans cette session.
             remoteDataSource.anonymousDeviceId()
-            val cloudResults = remoteDataSource.fetchRecent(now, CLOUD_MAX_FETCH_PER_SYNC)
+            val directCloudResults = remoteDataSource.fetchByEventIds(setOf(prediction.eventId), now)
+            val cloudResults = (directCloudResults + remoteDataSource.fetchRecent(now, CLOUD_MAX_FETCH_PER_SYNC))
+                .distinctBy { cloudDocumentIdFor(it.eventId) }
                 .filter { RemovedSports.isAllowedSportKey(it.sport) }
             val merged = mergeCloudResults(listOf(prediction), cloudResults, now)
                 .predictionsToUpsert
@@ -225,7 +227,7 @@ class CloudCollaborativeRepository(
                         )
                         .distinctBy { cloudAiRequestDocumentIdFor(deviceId, it.eventId) }
                         .sortedByDescending { it.priority }
-                        .take(120)
+                        .take(36)
                         .toList()
                     attemptedUpload += aiRequestPayload.size
                     if (aiRequestPayload.isNotEmpty()) {
@@ -401,6 +403,7 @@ interface CloudCollaborativeRemoteDataSource {
     fun publish(results: List<CloudSharedResult>): Int
     fun publishCalendarEvents(events: List<CloudSharedCalendarEvent>): Int
     fun publishAiAnalysisRequests(requests: List<CloudAiAnalysisRequest>): Int
+    fun fetchByEventIds(eventIds: Set<String>, now: Long): List<CloudSharedResult>
     fun fetchRecent(now: Long, limit: Long): List<CloudSharedResult>
     fun fetchDiagnostic(): CloudJobDiagnostic?
     fun fetchKnownDocumentIds(now: Long, limit: Long): Set<String>
@@ -501,6 +504,28 @@ class FirebaseCloudCollaborativeRemoteDataSource(
             Tasks.await(batch.commit(), 15, TimeUnit.SECONDS)
         }
         return publishable.size
+    }
+
+    override fun fetchByEventIds(eventIds: Set<String>, now: Long): List<CloudSharedResult> {
+        val firestore = firestoreOrNull() ?: return emptyList()
+        val documentIds = eventIds
+            .map { cloudDocumentIdFor(it) }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .take(12)
+        if (documentIds.isEmpty()) return emptyList()
+        return documentIds.flatMap { documentId ->
+            listOf("cloud_results", "shared_results").mapNotNull { collectionName ->
+                runCatching {
+                    Tasks.await(
+                        firestore.collection(collectionName).document(documentId).get(),
+                        8,
+                        TimeUnit.SECONDS,
+                    ).data?.let(::cloudSharedResultFromMap)
+                }.getOrNull()
+            }
+        }.filter { it.isCoherent(now) }
+            .distinctBy { cloudDocumentIdFor(it.eventId) }
     }
 
     override fun fetchRecent(now: Long, limit: Long): List<CloudSharedResult> {

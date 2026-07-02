@@ -1,4 +1,4 @@
-name: BetValue cloud sports job
+name: BetValue cloud AI requests
 
 on:
   workflow_dispatch:
@@ -7,22 +7,20 @@ on:
       - main
     paths:
       - "cloud-job/**"
-      - "firestore.rules"
-      - "firebase.json"
-      - ".firebaserc"
+      - ".github/workflows/cloud-ai-requests-job.yml"
       - ".github/workflows/cloud-sports-job.yml"
   schedule:
-    # UTC. Check automatique toutes les heures avec cache Firestore/IA pour rester compatible quota gratuit.
-    - cron: "0 * * * *"
+    # UTC. Petit job frequent: traite seulement les fiches ouvertes/demandees.
+    - cron: "*/15 * * * *"
 
 permissions:
   contents: read
   models: read
 
 jobs:
-  cloud-sports-job:
+  cloud-ai-requests-job:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 25
 
     defaults:
       run:
@@ -40,26 +38,20 @@ jobs:
       - name: Install dependencies
         run: npm install --omit=dev
 
-      - name: Deploy Firestore rules
-        continue-on-error: true
-        env:
-          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
-          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
-        run: node deploy-rules.mjs
-
-      - name: Run cloud sports job
+      - name: Run requested AI analyses
         env:
           FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
           FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
           EVENT_LOOKAHEAD_DAYS: "365"
-          MAX_RESULTS_TO_WRITE: "450"
-          MAX_REMOVED_SPORT_DELETES: "40"
+          MAX_RESULTS_TO_WRITE: "1200"
+          MAX_REMOVED_SPORT_DELETES: "0"
           AI_MODE: "automatic"
+          AI_REQUEST_ONLY: "1"
+          AI_REQUIRE_REQUESTS: "1"
           MAX_AI_EVENTS: "6"
-          AI_TARGET_POOL_SIZE: "120"
+          AI_TARGET_POOL_SIZE: "180"
           AI_REQUEST_POOL_SIZE: "80"
           AI_CACHE_ENABLED: "0"
-          AI_CACHE_TTL_HOURS: "24"
           AI_HTTP_TIMEOUT_MS: "12000"
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_MODELS_ENABLED: "1"

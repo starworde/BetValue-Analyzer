@@ -10,6 +10,7 @@ const MAX_RESULTS_TO_WRITE = Number.parseInt(process.env.MAX_RESULTS_TO_WRITE ??
 const MAX_NEWS_EVENTS = Number.parseInt(process.env.MAX_NEWS_EVENTS ?? "80", 10);
 const HTTP_TIMEOUT_MS = Number.parseInt(process.env.HTTP_TIMEOUT_MS ?? "16000", 10);
 const MAX_REMOVED_SPORT_DELETES = Number.parseInt(process.env.MAX_REMOVED_SPORT_DELETES ?? "120", 10);
+const AI_REQUEST_ONLY = process.env.AI_REQUEST_ONLY === "1";
 const USER_AGENT = "BetValueAnalyzer-GitHubActions/1.0 (+public sports schedules)";
 const REMOVED_SPORTS = new Set(["snooker", "australian_football", "darts", "cricket", "field_hockey"]);
 const isRemovedSport = (sport) => REMOVED_SPORTS.has(String(sport || "").split("/")[0]);
@@ -176,11 +177,11 @@ async function main() {
   const newsByEventId = await collectNewsContexts(events);
   console.log(`[cloud] news analysées: ${diagnostics.newsChecked}, avec signaux: ${diagnostics.newsWithSignals}`);
 
-  const baseResults = events
+  const allResults = events
     .map((event) => buildCloudResult(event, newsByEventId.get(event.eventId)))
     .filter(Boolean)
-    .sort((a, b) => a.eventDate - b.eventDate || b.confidenceScore - a.confidenceScore)
-    .slice(0, MAX_RESULTS_TO_WRITE);
+    .sort((a, b) => a.eventDate - b.eventDate || b.confidenceScore - a.confidenceScore);
+  const baseResults = AI_REQUEST_ONLY ? allResults : allResults.slice(0, MAX_RESULTS_TO_WRITE);
   console.log(`[cloud] résultats préparés avant IA: ${baseResults.length}`);
 
   if (process.env.DRY_RUN === "1") {
@@ -241,14 +242,19 @@ async function main() {
     diagnostics,
     db,
   });
-  diagnostics.resultsPrepared = results.length;
-  diagnostics.resultsBySport = countBy(results, (result) => result.sport);
+  const resultsToWrite = AI_REQUEST_ONLY
+    ? results.filter((result) => isUsableExternalAiCache(result.aiAnalysis)).slice(0, Number.parseInt(process.env.MAX_AI_EVENTS ?? "18", 10))
+    : results;
+  diagnostics.resultsPrepared = resultsToWrite.length;
+  diagnostics.resultsBySport = countBy(resultsToWrite, (result) => result.sport);
   console.log(`[cloud] IA: appelées=${diagnostics.aiCalled}, réponses=${diagnostics.aiResponded}, cache=${diagnostics.aiCacheHits}, sans analyse cloud=${diagnostics.aiFallbackUsed}`);
   try {
-    console.log("[cloud] nettoyage sports retirés…");
-    await deleteRemovedSports(db);
+    if (!AI_REQUEST_ONLY) {
+      console.log("[cloud] nettoyage sports retirés…");
+      await deleteRemovedSports(db);
+    }
     console.log("[cloud] écriture Firestore cloud_results…");
-    const written = await writeCloudResults(db, results);
+    const written = await writeCloudResults(db, resultsToWrite);
     diagnostics.resultsWritten = written;
     console.log(`[cloud] résultats écrits: ${written}`);
     await writeDiagnostic(db, { status: "success" });
