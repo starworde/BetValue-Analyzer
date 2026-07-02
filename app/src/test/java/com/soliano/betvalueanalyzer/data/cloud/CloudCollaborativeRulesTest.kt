@@ -209,7 +209,7 @@ class CloudCollaborativeRulesTest {
         )
 
         assertNotNull(request)
-        assertEquals("opened_event_priority", request!!.reason)
+        assertEquals("sport_priority", request!!.reason)
         assertTrue(request.priority >= 180)
         assertEquals("pending", request.status)
     }
@@ -226,7 +226,7 @@ class CloudCollaborativeRulesTest {
         )
 
         assertNotNull(request)
-        assertEquals("opened_event_priority", request!!.reason)
+        assertEquals("sport_priority", request!!.reason)
         assertTrue(request.priority >= 180)
     }
 

@@ -331,7 +331,7 @@ fun PredictionEntity.toCloudAiAnalysisRequest(
         participantB = awayTeam.trimCloudText(140),
         priority = (favoriteWeight + urgency + confidenceScore.coerceIn(0, 100) / 10).coerceIn(1, 200),
         reason = when {
-            forceOpenedPriority -> "opened_event_priority"
+            forceOpenedPriority -> "sport_priority"
             competitionFavorite && sportFavorite -> "competition_and_sport_priority"
             competitionFavorite -> "competition_priority"
             else -> "sport_priority"
@@ -382,7 +382,7 @@ fun UpcomingEventEntity.toCloudAiAnalysisRequest(
         participantB = participantB.trimCloudText(140),
         priority = ((if (forceOpenedPriority) 145 else 0) + (if (competitionFavorite) 90 else 0) + (if (sportFavorite) 55 else 0) + urgency).coerceIn(1, 200),
         reason = when {
-            forceOpenedPriority -> "opened_event_priority"
+            forceOpenedPriority -> "sport_priority"
             competitionFavorite && sportFavorite -> "competition_and_sport_priority"
             competitionFavorite -> "competition_priority"
             else -> "sport_priority"

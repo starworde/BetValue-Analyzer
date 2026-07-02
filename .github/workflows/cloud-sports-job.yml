@@ -52,11 +52,11 @@ jobs:
           FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
           FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
           EVENT_LOOKAHEAD_DAYS: "365"
-          MAX_RESULTS_TO_WRITE: "900"
-          MAX_REMOVED_SPORT_DELETES: "120"
+          MAX_RESULTS_TO_WRITE: "450"
+          MAX_REMOVED_SPORT_DELETES: "40"
           AI_MODE: "automatic"
           MAX_AI_EVENTS: "6"
-          AI_TARGET_POOL_SIZE: "520"
+          AI_TARGET_POOL_SIZE: "120"
           AI_CACHE_TTL_HOURS: "24"
           AI_HTTP_TIMEOUT_MS: "12000"
           GITHUB_TOKEN: ${{ github.token }}

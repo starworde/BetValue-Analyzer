@@ -72,7 +72,8 @@ export async function enrichResultsWithMultiAi({
   const aiBudget = providers.length > 0 ? MAX_AI_EVENTS : Math.min(MAX_AI_EVENTS, 60);
   const candidates = selectAiTargets(results, eventsById, diagnostics.aiMode, providers.length > 0, AI_TARGET_POOL_SIZE, aiRequests);
   diagnostics.aiRequestsMatched = candidates.filter((result) => findAiRequestForResult(result, eventsById.get(result.eventId), aiRequests)).length;
-  const cached = db ? await loadAiCache(db, candidates, diagnostics) : new Map();
+  const cacheProbeLimit = Math.min(candidates.length, Math.max(aiBudget * 8, 48));
+  const cached = db ? await loadAiCache(db, candidates.slice(0, cacheProbeLimit), diagnostics) : new Map();
   const targets = candidates
     .filter((result) => !cached.has(result.eventId))
     .slice(0, aiBudget);
@@ -142,7 +143,8 @@ export async function enrichResultsWithMultiAi({
 
     if (providerResponses.length === 0) {
       diagnostics.aiFallbackUsed += 1;
-      console.log(`[ai] ${targetIndex}/${targets.length} aucune réponse IA, résultat conservé sans fausse analyse`);
+      console.log(`[ai] ${targetIndex}/${targets.length} aucune reponse IA: ${providerErrors.join(" | ") || "aucune erreur transmise"}`);
+      console.log(`[ai] ${targetIndex}/${targets.length} resultat conserve sans fausse analyse`);
       output.push(result);
       continue;
     }
@@ -218,7 +220,11 @@ function configuredFreeProviders() {
     providers.push({
       id: "github-models",
       label: "GitHub Models via Actions",
-      model: process.env.GITHUB_MODELS_MODEL || "openai/gpt-4o",
+      model: process.env.GITHUB_MODELS_MODEL || "openai/gpt-4o-mini",
+      fallbackModels: (process.env.GITHUB_MODELS_FALLBACK_MODELS || "openai/gpt-4o-mini,openai/gpt-4o,openai/gpt-4.1-mini")
+        .split(",")
+        .map((model) => model.trim())
+        .filter(Boolean),
       apiKey: process.env.GITHUB_TOKEN,
       endpoint: "https://models.github.ai/inference/chat/completions",
       kind: "github-models",
@@ -317,7 +323,7 @@ function aiPriorityScore(result, event, mode, aiRequest = null) {
     const requestPriority = Number(aiRequest.priority || 0);
     score += 160 + Math.min(120, Math.max(0, requestPriority));
     if (String(aiRequest.reason || "").includes("competition")) score += 30;
-    if (String(aiRequest.reason || "") === "opened_event_priority") score += 70;
+    if (String(aiRequest.reason || "") === "opened_event_priority" || requestPriority >= 180) score += 70;
   }
   const startsInHours = (result.eventDate - Date.now()) / (60 * 60 * 1000);
   if (startsInHours >= -2 && startsInHours <= 72) score += 35;
@@ -423,6 +429,7 @@ function textKey(value) {
 async function loadAiCache(db, targets, diagnostics) {
   const output = new Map();
   for (const chunk of chunked(targets, 10)) {
+    if (diagnostics.aiCacheQuotaLimited) break;
     await Promise.all(chunk.map(async (result) => {
       try {
         const doc = await db.collection("cloud_results").doc(cloudDocumentIdFor(result.eventId)).get();
@@ -437,7 +444,9 @@ async function loadAiCache(db, targets, diagnostics) {
           });
         }
       } catch (error) {
-        diagnostics.aiErrors.push(`cache:${compactAiText(error?.message || String(error), 160)}`);
+        const message = compactAiText(error?.message || String(error), 160);
+        diagnostics.aiErrors.push(`cache:${message}`);
+        if (/quota|resource_exhausted|too many requests|429/i.test(message)) diagnostics.aiCacheQuotaLimited = true;
       }
     }));
   }
@@ -471,21 +480,34 @@ async function callGemini(provider, prompt) {
 }
 
 async function callOpenAiCompatible(provider, prompt) {
-  const body = {
-    model: provider.model,
-    messages: [
-      { role: "system", content: "Tu es un analyste sportif. Réponds uniquement en JSON valide." },
-      { role: "user", content: prompt },
-    ],
-    temperature: 0.2,
-    max_tokens: 950,
-  };
-  if (provider.jsonMode) body.response_format = { type: "json_object" };
-  const json = await postJson(provider.endpoint, body, {
-    Authorization: `Bearer ${provider.apiKey}`,
-    ...(provider.extraHeaders || {}),
-  });
-  return String(json.choices?.[0]?.message?.content || "").trim();
+  const modelCandidates = [...new Set([provider.model, ...(provider.fallbackModels || [])].filter(Boolean))];
+  let lastError = null;
+  for (const model of modelCandidates) {
+    const body = {
+      model,
+      messages: [
+        { role: "system", content: "Tu es un analyste sportif. Reponds uniquement en JSON valide." },
+        { role: "user", content: prompt },
+      ],
+      temperature: 0.2,
+      max_tokens: 950,
+    };
+    if (provider.jsonMode) body.response_format = { type: "json_object" };
+    try {
+      const json = await postJson(provider.endpoint, body, {
+        Authorization: `Bearer ${provider.apiKey}`,
+        ...(provider.extraHeaders || {}),
+      });
+      const content = String(json.choices?.[0]?.message?.content || "").trim();
+      if (content) return content;
+      throw new Error(`Reponse vide du modele ${model}`);
+    } catch (error) {
+      lastError = error;
+      if (error?.status === 401 || error?.status === 429) throw error;
+      if (![400, 403, 404].includes(Number(error?.status || 0))) throw error;
+    }
+  }
+  throw lastError || new Error("Aucun modele GitHub Models n'a repondu");
 }
 
 async function postJson(url, body, extraHeaders = {}) {
