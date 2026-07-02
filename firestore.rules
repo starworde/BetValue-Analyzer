@@ -45,7 +45,6 @@ service cloud.firestore {
 
     function isValidAiRequest(data) {
       return data.keys().hasAll(requiredAiRequestKeys())
-        && data.keys().hasOnly(allowedAiRequestKeys())
         && data.documentType == 'ai_request'
         && data.status == 'pending'
         && data.reason in ['sport_priority', 'competition_priority', 'competition_and_sport_priority', 'opened_event_priority']
@@ -55,14 +54,15 @@ service cloud.firestore {
         && isNonEmptyString(data.eventName, 220)
         && isNonEmptyString(data.appVersion, 40)
         && isNonEmptyString(data.deviceId, 128)
-        && data.eventDate is int
-        && data.updatedAt is int
-        && data.expiresAt is int
+        && data.deviceId == request.auth.uid
+        && isMillisNumber(data.eventDate)
+        && isMillisNumber(data.updatedAt)
+        && isMillisNumber(data.expiresAt)
         && data.expiresAt > request.time.toMillis()
         && data.updatedAt <= request.time.toMillis() + 600000
         && data.updatedAt >= request.time.toMillis() - 86400000
         && data.eventDate >= request.time.toMillis() - 172800000
-        && data.priority is int
+        && isBoundedNumber(data.priority, 1, 200)
         && data.priority >= 1
         && data.priority <= 200
         && isSafeString(data.sportTitle, 120)
@@ -268,6 +268,14 @@ service cloud.firestore {
 
     function isProbability(value) {
       return value is number && value >= 0 && value <= 1;
+    }
+
+    function isMillisNumber(value) {
+      return value is number && value > 0;
+    }
+
+    function isBoundedNumber(value, min, max) {
+      return value is number && value >= min && value <= max;
     }
   }
 }
