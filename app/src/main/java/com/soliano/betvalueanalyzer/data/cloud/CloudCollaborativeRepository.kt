@@ -45,6 +45,10 @@ class CloudCollaborativeRepository(
         )
     }
 
+    suspend fun refreshPredictionCloudAi(prediction: PredictionEntity): PredictionEntity {
+        return hydratePredictionWithCloudAi(prediction)
+    }
+
     suspend fun requestAiAnalysisForEvent(
         appVersion: String,
         event: UpcomingEventEntity,
@@ -111,9 +115,7 @@ class CloudCollaborativeRepository(
             val cloudResults = (directCloudResults + remoteDataSource.fetchRecent(now, CLOUD_MAX_FETCH_PER_SYNC))
                 .distinctBy { cloudDocumentIdFor(it.eventId) }
                 .filter { RemovedSports.isAllowedSportKey(it.sport) }
-            val merged = mergeCloudResults(listOf(prediction), cloudResults, now)
-                .predictionsToUpsert
-                .firstOrNull()
+            val merged = attachCloudAiToPrediction(prediction, cloudResults, now)
             if (merged != null) {
                 predictionDao.upsertAll(listOf(merged))
                 val report = CloudSyncReport(

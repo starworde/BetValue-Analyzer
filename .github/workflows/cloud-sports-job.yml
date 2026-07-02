@@ -63,7 +63,10 @@ jobs:
           AI_HTTP_TIMEOUT_MS: "12000"
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_MODELS_ENABLED: "1"
+          GITHUB_MODELS_MULTI: "1"
+          GITHUB_MODELS_MULTI_LIMIT: "3"
           GITHUB_MODELS_MODEL: ${{ vars.GITHUB_MODELS_MODEL }}
+          GITHUB_MODELS_MODEL_POOL: ${{ vars.GITHUB_MODELS_MODEL_POOL }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}

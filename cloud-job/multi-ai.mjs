@@ -220,22 +220,28 @@ function allFreeProviderNames() {
 function configuredFreeProviders() {
   const providers = [];
   if (process.env.GITHUB_TOKEN && process.env.GITHUB_MODELS_ENABLED !== "0") {
-    providers.push({
-      id: "github-models",
-      label: "GitHub Models via Actions",
-      model: process.env.GITHUB_MODELS_MODEL || "openai/gpt-4o-mini",
-      fallbackModels: (process.env.GITHUB_MODELS_FALLBACK_MODELS || "openai/gpt-4o-mini,openai/gpt-4o,openai/gpt-4.1-mini")
-        .split(",")
-        .map((model) => model.trim())
-        .filter(Boolean),
-      apiKey: process.env.GITHUB_TOKEN,
-      endpoint: "https://models.github.ai/inference/chat/completions",
-      kind: "github-models",
-      jsonMode: false,
-      extraHeaders: {
-        Accept: "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
+    const primaryModel = process.env.GITHUB_MODELS_MODEL || "openai/gpt-4o-mini";
+    const defaultFallbacks = parseCsv(process.env.GITHUB_MODELS_FALLBACK_MODELS || "openai/gpt-4o-mini,openai/gpt-4o,openai/gpt-4.1-mini");
+    const multiModelPool = parseCsv(process.env.GITHUB_MODELS_MODEL_POOL || [primaryModel, ...defaultFallbacks].join(","));
+    const githubModels = process.env.GITHUB_MODELS_MULTI === "1"
+      ? uniqueStrings(multiModelPool).slice(0, Number(process.env.GITHUB_MODELS_MULTI_LIMIT || 3) || 3)
+      : [primaryModel];
+    githubModels.forEach((model, index) => {
+      providers.push({
+        id: index === 0 ? "github-models" : `github-models-${slugProviderId(model)}`,
+        label: githubModels.length > 1 ? `GitHub Models ${index + 1} · ${model}` : "GitHub Models via Actions",
+        model,
+        fallbackModels: githubModels.length > 1 ? [] : defaultFallbacks,
+        apiKey: process.env.GITHUB_TOKEN,
+        endpoint: "https://models.github.ai/inference/chat/completions",
+        kind: "github-models",
+        family: "github-models",
+        jsonMode: false,
+        extraHeaders: {
+          Accept: "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+        },
+      });
     });
   }
   if (process.env.GEMINI_API_KEY) {
@@ -245,6 +251,7 @@ function configuredFreeProviders() {
       model: process.env.GEMINI_MODEL || "gemini-1.5-flash",
       apiKey: process.env.GEMINI_API_KEY,
       kind: "gemini",
+      family: "gemini",
     });
   }
   if (process.env.GROQ_API_KEY) {
@@ -255,6 +262,7 @@ function configuredFreeProviders() {
       apiKey: process.env.GROQ_API_KEY,
       endpoint: "https://api.groq.com/openai/v1/chat/completions",
       kind: "openai-compatible",
+      family: "groq",
       jsonMode: true,
     });
   }
@@ -266,6 +274,7 @@ function configuredFreeProviders() {
       apiKey: process.env.MISTRAL_API_KEY,
       endpoint: "https://api.mistral.ai/v1/chat/completions",
       kind: "openai-compatible",
+      family: "mistral",
       jsonMode: false,
     });
   }
@@ -278,6 +287,7 @@ function configuredFreeProviders() {
       apiKey: process.env.OPENROUTER_API_KEY,
       endpoint: "https://openrouter.ai/api/v1/chat/completions",
       kind: "openai-compatible",
+      family: "openrouter",
       jsonMode: true,
       extraHeaders: {
         "HTTP-Referer": "https://github.com/starworde/BetValue-Analyzer",
@@ -286,6 +296,25 @@ function configuredFreeProviders() {
     });
   }
   return providers;
+}
+
+function parseCsv(value) {
+  return String(value || "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function uniqueStrings(values) {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function slugProviderId(value) {
+  return String(value || "model")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48) || "model";
 }
 
 function normalizedAiMode() {
@@ -298,12 +327,29 @@ function normalizedAiMode() {
 }
 
 function selectProvidersForMode(providers, mode, result) {
-  if (providers.length <= 1) return providers;
-  if (mode === "economique") return providers.slice(0, 1);
-  if (mode === "double") return providers.slice(0, 2);
-  if (mode === "renforce" || mode === "complet") return providers;
+  const diversified = diversifyProviders(providers);
+  if (diversified.length <= 1) return diversified;
+  if (mode === "economique") return diversified.slice(0, 1);
+  if (mode === "double") return diversified.slice(0, 2);
+  if (mode === "renforce" || mode === "complet") return diversified;
   const fragile = result.confidenceScore < 63 || ["exotique", "mitige"].includes(String(result.category).toLowerCase());
-  return fragile ? providers.slice(0, Math.min(2, providers.length)) : providers.slice(0, 1);
+  return fragile ? diversified.slice(0, Math.min(2, diversified.length)) : diversified.slice(0, 1);
+}
+
+function diversifyProviders(providers) {
+  const firstByFamily = [];
+  const remaining = [];
+  const seenFamilies = new Set();
+  for (const provider of providers) {
+    const family = provider.family || provider.kind || provider.id || provider.label;
+    if (!seenFamilies.has(family)) {
+      seenFamilies.add(family);
+      firstByFamily.push(provider);
+    } else {
+      remaining.push(provider);
+    }
+  }
+  return [...firstByFamily, ...remaining];
 }
 
 function selectAiTargets(results, eventsById, mode, hasProviders, limit = null, aiRequests = []) {

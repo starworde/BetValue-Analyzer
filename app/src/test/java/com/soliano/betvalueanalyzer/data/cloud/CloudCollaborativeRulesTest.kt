@@ -181,6 +181,84 @@ class CloudCollaborativeRulesTest {
     }
 
     @Test
+    fun `ouverture detail importe uniquement IA cloud sans remplacer le match affiche`() {
+        val local = prediction().copy(
+            id = "local-detail-spain-austria",
+            eventId = "local-provider:spain-austria",
+            sportKey = "soccer/deep",
+            sportTitle = "Football",
+            competitionName = "Coupe du monde FIFA",
+            homeTeam = "Spain",
+            awayTeam = "Austria",
+            sourceLastUpdate = now - 60_000L,
+            aiAnalysis = "",
+            aiDiagnostic = "",
+            aiGeneratedAt = 0L,
+        )
+        val cloud = prediction().copy(
+            id = "cloud-other-id",
+            eventId = "espn:soccer:all:760497",
+            sportKey = "soccer",
+            sportTitle = "Soccer",
+            competitionName = "FIFA World Cup",
+            homeTeam = "Austria",
+            awayTeam = "Spain",
+            selection = "Spain or draw",
+            sourceLastUpdate = now,
+            aiAnalysis = validAiAnalysis("IA detail attachee sans remplacer la fiche"),
+            aiDiagnostic = """{"iaRepondues":["GitHub Models via Actions"]}""",
+            aiGeneratedAt = now,
+        ).toCloudSharedResult("5.2.0", "github-actions", now)!!
+
+        val attached = attachCloudAiToPrediction(local, listOf(cloud), now)!!
+
+        assertEquals("local-detail-spain-austria", attached.id)
+        assertEquals("local-provider:spain-austria", attached.eventId)
+        assertEquals("soccer/deep", attached.sportKey)
+        assertEquals("Coupe du monde FIFA", attached.competitionName)
+        assertEquals("Spain", attached.homeTeam)
+        assertEquals("Austria", attached.awayTeam)
+        assertTrue(attached.aiAnalysis.contains("IA detail attachee"))
+        assertTrue(attached.aiAnalysis.hasValidCloudAiAnalysis())
+    }
+
+    @Test
+    fun `ouverture detail refuse IA cloud d un autre sport`() {
+        val local = prediction().copy(
+            id = "local-detail-spain-austria",
+            eventId = "local-provider:spain-austria",
+            sportKey = "soccer/deep",
+            sportTitle = "Football",
+            competitionName = "Coupe du monde FIFA",
+            homeTeam = "Spain",
+            awayTeam = "Austria",
+            commenceTime = now + 90 * 60 * 1000L,
+            sourceLastUpdate = now - 60_000L,
+            aiAnalysis = "",
+            aiDiagnostic = "",
+            aiGeneratedAt = 0L,
+        )
+        val otherSportCloud = prediction().copy(
+            id = "cloud-rugby-id",
+            eventId = "rugby-provider:spain-austria",
+            sportKey = "rugby",
+            sportTitle = "Rugby",
+            competitionName = "Top 14",
+            homeTeam = "Spain",
+            awayTeam = "Austria",
+            commenceTime = local.commenceTime,
+            sourceLastUpdate = now,
+            aiAnalysis = validAiAnalysis("IA rugby qui ne doit pas etre attachee"),
+            aiDiagnostic = """{"iaRepondues":["GitHub Models via Actions"]}""",
+            aiGeneratedAt = now,
+        ).toCloudSharedResult("5.2.0", "github-actions", now)!!
+
+        val attached = attachCloudAiToPrediction(local, listOf(otherSportCloud), now)
+
+        assertEquals(null, attached)
+    }
+
+    @Test
     fun `validation IA refuse fallback provider zero et JSON invalide`() {
         assertTrue(validAiAnalysis("Vraie IA").hasValidCloudAiAnalysis())
         assertFalse("""{"source":"local-preanalysis","providerCount":1,"lectureRapide":"fallback"}""".hasValidCloudAiAnalysis())

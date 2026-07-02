@@ -560,6 +560,27 @@ fun shouldUseCloudResult(local: PredictionEntity?, cloud: CloudSharedResult, now
     return cloudMergeMode(local, cloud, now) != CloudMergeMode.None
 }
 
+fun attachCloudAiToPrediction(
+    local: PredictionEntity,
+    cloudResults: List<CloudSharedResult>,
+    now: Long,
+): PredictionEntity? {
+    val matched = cloudResults
+        .asSequence()
+        .filter { it.isCoherent(now) }
+        .filter { it.aiAnalysis.hasValidCloudAiAnalysis() }
+        .filter { findMatchingLocalPrediction(listOf(local), mapOf(local.cloudIdentityKey() to local), it) != null }
+        .sortedWith(
+            compareByDescending<CloudSharedResult> { it.eventId == local.eventId }
+                .thenByDescending { it.aiGeneratedAt }
+                .thenByDescending { it.updatedAt }
+        )
+        .firstOrNull()
+        ?: return null
+    if (!matched.shouldImportOnlyAiInto(local)) return null
+    return local.withCloudAiFrom(matched)
+}
+
 private enum class CloudMergeMode {
     Full,
     AiOnly,

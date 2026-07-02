@@ -13,6 +13,7 @@ import com.soliano.betvalueanalyzer.data.DeepAnalysisTarget
 import com.soliano.betvalueanalyzer.data.UserSettings
 import com.soliano.betvalueanalyzer.data.cloud.CloudCollaborativeRepository
 import com.soliano.betvalueanalyzer.data.cloud.CloudSyncReport
+import com.soliano.betvalueanalyzer.data.cloud.hasValidCloudAiAnalysis
 import com.soliano.betvalueanalyzer.data.local.LiveEventEntity
 import com.soliano.betvalueanalyzer.data.local.PredictionEntity
 import com.soliano.betvalueanalyzer.data.local.SportEntity
@@ -45,6 +46,7 @@ import kotlinx.coroutines.yield
 import java.text.Normalizer
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.math.abs
 
 sealed interface SyncStatus {
     data object Idle : SyncStatus
@@ -159,6 +161,7 @@ class MainViewModel(
     private val deepPredictionCache = ConcurrentHashMap<String, PredictionEntity>()
     private val deepAnalysisTasks = ConcurrentHashMap<String, Deferred<PredictionEntity>>()
     private val sportPreloadJobs = ConcurrentHashMap<String, Job>()
+    private val deepCloudAiRefreshJobs = ConcurrentHashMap<String, Job>()
 
     private val sportsUiState = combine(
         sportsAnalysisRepository.upcomingPredictions,
@@ -465,14 +468,19 @@ class MainViewModel(
             val cacheKey = target.deepCacheKey()
             deepPredictionCache[cacheKey]?.let { cached ->
                 _deepAnalysis.value = DeepAnalysisStatus.Running(target, 0.86, "Verification IA cloud")
-                val prepared = preparePredictionForDetail(cached)
+                val prepared = preparePredictionForDetail(cached).ensureMatchesTarget(target)
                 _deepAnalysis.value = DeepAnalysisStatus.Ready(prepared)
+                scheduleCloudAiRefreshIfNeeded(cacheKey, target, prepared)
                 return@launch
             }
             deepAnalysisTasks[cacheKey]?.let { running ->
                 _deepAnalysis.value = DeepAnalysisStatus.Running(target, 0.72, "Dossier préchargé en cours d'ouverture")
                 runCatching { running.await() }
-                    .onSuccess { prediction -> _deepAnalysis.value = DeepAnalysisStatus.Ready(preparePredictionForDetail(prediction)) }
+                    .onSuccess { prediction ->
+                        val prepared = preparePredictionForDetail(prediction).ensureMatchesTarget(target)
+                        _deepAnalysis.value = DeepAnalysisStatus.Ready(prepared)
+                        scheduleCloudAiRefreshIfNeeded(cacheKey, target, prepared)
+                    }
                     .onFailure { error -> _deepAnalysis.value = DeepAnalysisStatus.Error(target, error.userSyncMessage("Analyse approfondie impossible.")) }
                 return@launch
             }
@@ -485,10 +493,11 @@ class MainViewModel(
                 }
             }.onSuccess { prediction ->
                 val cleaned = prediction.cleanedForDisplay()
-                val prepared = preparePredictionForDetail(cleaned)
+                val prepared = preparePredictionForDetail(cleaned).ensureMatchesTarget(target)
                 deepPredictionCache[cacheKey] = prepared
                 withContext(Dispatchers.Default) { StructuredAnalysisCache.getOrBuild(prepared) }
                 _deepAnalysis.value = DeepAnalysisStatus.Ready(prepared)
+                scheduleCloudAiRefreshIfNeeded(cacheKey, target, prepared)
             }.onFailure { error ->
                 _deepAnalysis.value = DeepAnalysisStatus.Error(target, error.userSyncMessage("Analyse approfondie impossible."))
             }
@@ -500,12 +509,44 @@ class MainViewModel(
             cloudCollaborativeRepository.preparePredictionForDetail(BuildConfig.VERSION_NAME, prediction).prediction
         }.cleanedForDisplay()
 
+    private fun scheduleCloudAiRefreshIfNeeded(
+        cacheKey: String,
+        target: DeepAnalysisTarget,
+        prediction: PredictionEntity,
+    ) {
+        if (prediction.aiAnalysis.hasValidCloudAiAnalysis()) return
+        deepCloudAiRefreshJobs[cacheKey]?.takeIf { it.isActive }?.let { return }
+        val expectedDisplayKey = prediction.displayEventKey()
+        val job = viewModelScope.launch {
+            repeat(12) { attempt ->
+                delay(if (attempt == 0) 20_000L else 30_000L)
+                val current = (_deepAnalysis.value as? DeepAnalysisStatus.Ready)?.prediction ?: return@launch
+                if (current.displayEventKey() != expectedDisplayKey) return@launch
+                val refreshed = runCatching {
+                    withContext(Dispatchers.IO) {
+                        cloudCollaborativeRepository.refreshPredictionCloudAi(current)
+                    }.cleanedForDisplay().ensureMatchesTarget(target)
+                }.getOrNull() ?: return@repeat
+                if (refreshed.aiAnalysis.hasValidCloudAiAnalysis()) {
+                    deepPredictionCache[cacheKey] = refreshed
+                    withContext(Dispatchers.Default) { StructuredAnalysisCache.getOrBuild(refreshed) }
+                    _deepAnalysis.value = DeepAnalysisStatus.Ready(refreshed)
+                    return@launch
+                }
+            }
+        }
+        deepCloudAiRefreshJobs[cacheKey] = job
+        job.invokeOnCompletion { deepCloudAiRefreshJobs.remove(cacheKey, job) }
+    }
+
     private fun startDeepAnalysisTask(target: DeepAnalysisTarget): Deferred<PredictionEntity> {
         val cacheKey = target.deepCacheKey()
         deepPredictionCache[cacheKey]?.let { cached -> return CompletableDeferred(cached) }
         deepAnalysisTasks[cacheKey]?.let { return it }
         val deferred = viewModelScope.async(Dispatchers.IO) {
-            val prediction = sportsAnalysisRepository.analyzeDeep(target) { _, _ -> }.cleanedForDisplay()
+            val prediction = sportsAnalysisRepository.analyzeDeep(target) { _, _ -> }
+                .cleanedForDisplay()
+                .ensureMatchesTarget(target)
             deepPredictionCache[cacheKey] = prediction
             withContext(Dispatchers.Default) { StructuredAnalysisCache.getOrBuild(prediction) }
             prediction
@@ -722,6 +763,27 @@ private fun PredictionEntity.isBetterDisplayCandidateThan(other: PredictionEntit
         .thenBy { it.sourceLastUpdate }
         .thenBy { it.sourceName.length }
     return comparator.compare(this, other) > 0
+}
+
+private fun PredictionEntity.ensureMatchesTarget(target: DeepAnalysisTarget): PredictionEntity {
+    val expectedSport = target.sportKey.substringBefore('/').displayKeyPart()
+    val actualSport = sportKey.substringBefore('/').displayKeyPart()
+    require(expectedSport == actualSport) {
+        "Analyse refusée : résultat $actualSport reçu pour une fiche $expectedSport."
+    }
+    val expectedParticipants = normalizedParticipants(target.homeTeam, target.awayTeam)
+    val actualParticipants = normalizedParticipants(homeTeam, awayTeam)
+    if (expectedParticipants.isNotBlank() && actualParticipants.isNotBlank()) {
+        require(expectedParticipants == actualParticipants) {
+            "Analyse refusée : le match reçu ne correspond pas à la fiche ouverte."
+        }
+    }
+    if (target.commenceTime > 0L && commenceTime > 0L) {
+        require(abs(commenceTime - target.commenceTime) <= 12L * 60L * 60L * 1000L) {
+            "Analyse refusée : horaire incompatible avec la fiche ouverte."
+        }
+    }
+    return this
 }
 
 private fun UpcomingEventEntity.isBetterDisplayCandidateThan(other: UpcomingEventEntity): Boolean {
