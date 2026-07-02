@@ -8,7 +8,9 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
 import com.soliano.betvalueanalyzer.data.PreferencesRepository
 import com.soliano.betvalueanalyzer.data.local.PredictionDao
+import com.soliano.betvalueanalyzer.data.local.PredictionEntity
 import com.soliano.betvalueanalyzer.data.local.UpcomingEventDao
+import com.soliano.betvalueanalyzer.data.local.UpcomingEventEntity
 import com.soliano.betvalueanalyzer.domain.RemovedSports
 import java.io.File
 import java.util.Locale
@@ -27,6 +29,109 @@ class CloudCollaborativeRepository(
     private val upcomingEventDao: UpcomingEventDao,
     private val remoteDataSource: CloudCollaborativeRemoteDataSource = FirebaseCloudCollaborativeRemoteDataSource(context),
 ) {
+    suspend fun preparePredictionForDetail(
+        appVersion: String,
+        prediction: PredictionEntity,
+    ): CloudPreparedPrediction {
+        val hydrated = hydratePredictionWithCloudAi(prediction)
+        val request = requestAiAnalysisForPrediction(appVersion, hydrated)
+        return CloudPreparedPrediction(
+            prediction = if (hydrated.aiAnalysis.hasValidCloudAiAnalysis()) {
+                hydrated
+            } else {
+                hydrated.withCloudAiRequestDiagnostic(request)
+            },
+            request = request,
+        )
+    }
+
+    suspend fun requestAiAnalysisForEvent(
+        appVersion: String,
+        event: UpcomingEventEntity,
+    ): CloudAiRequestOutcome {
+        val now = System.currentTimeMillis()
+        val settings = preferencesRepository.settings.first()
+        if (!settings.cloudCollaborativeEnabled) return CloudAiRequestOutcome.Disabled
+        if (!remoteDataSource.isAvailable()) return CloudAiRequestOutcome.FirebaseUnavailable
+        return runCatching {
+            val deviceId = remoteDataSource.anonymousDeviceId()
+            val request = event.toCloudAiAnalysisRequest(
+                appVersion = appVersion,
+                deviceId = deviceId,
+                now = now,
+                favoriteSports = settings.favoriteSports,
+                favoriteCompetitions = settings.favoriteCompetitions,
+                forceOpenedPriority = true,
+            ) ?: return@runCatching CloudAiRequestOutcome.NotQueued("evenement non coherent pour une demande IA")
+            val written = remoteDataSource.publishAiAnalysisRequests(listOf(request))
+            if (written > 0) CloudAiRequestOutcome.Requested else CloudAiRequestOutcome.NotQueued("demande IA deja presente ou refusee")
+        }.getOrElse { error ->
+            CloudAiRequestOutcome.Failed(cloudCollaborativeErrorMessage(error))
+        }
+    }
+
+    suspend fun requestAiAnalysisForPrediction(
+        appVersion: String,
+        prediction: PredictionEntity,
+    ): CloudAiRequestOutcome {
+        val now = System.currentTimeMillis()
+        if (prediction.aiAnalysis.hasValidCloudAiAnalysis() && now - prediction.aiGeneratedAt <= 12 * 60 * 60 * 1000L) {
+            return CloudAiRequestOutcome.AlreadyAvailable
+        }
+        val settings = preferencesRepository.settings.first()
+        if (!settings.cloudCollaborativeEnabled) return CloudAiRequestOutcome.Disabled
+        if (!remoteDataSource.isAvailable()) return CloudAiRequestOutcome.FirebaseUnavailable
+        return runCatching {
+            val deviceId = remoteDataSource.anonymousDeviceId()
+            val request = prediction.toCloudAiAnalysisRequest(
+                appVersion = appVersion,
+                deviceId = deviceId,
+                now = now,
+                favoriteSports = settings.favoriteSports,
+                favoriteCompetitions = settings.favoriteCompetitions,
+                forceOpenedPriority = true,
+            ) ?: return@runCatching CloudAiRequestOutcome.NotQueued("prediction non coherente ou IA deja fraiche")
+            val written = remoteDataSource.publishAiAnalysisRequests(listOf(request))
+            if (written > 0) CloudAiRequestOutcome.Requested else CloudAiRequestOutcome.NotQueued("demande IA deja presente ou refusee")
+        }.getOrElse { error ->
+            CloudAiRequestOutcome.Failed(cloudCollaborativeErrorMessage(error))
+        }
+    }
+
+    private suspend fun hydratePredictionWithCloudAi(prediction: PredictionEntity): PredictionEntity {
+        val now = System.currentTimeMillis()
+        val settings = preferencesRepository.settings.first()
+        if (!settings.cloudCollaborativeEnabled) return prediction
+        if (!remoteDataSource.isAvailable()) return prediction
+        return runCatching {
+            // Garantit que la lecture Firestore respecte les règles auth anonyme,
+            // même si l'app n'a pas encore publié de données dans cette session.
+            remoteDataSource.anonymousDeviceId()
+            val cloudResults = remoteDataSource.fetchRecent(now, CLOUD_MAX_FETCH_PER_SYNC)
+                .filter { RemovedSports.isAllowedSportKey(it.sport) }
+            val merged = mergeCloudResults(listOf(prediction), cloudResults, now)
+                .predictionsToUpsert
+                .firstOrNull()
+            if (merged != null) {
+                predictionDao.upsertAll(listOf(merged))
+                val report = CloudSyncReport(
+                    enabled = true,
+                    firebaseAvailable = true,
+                    fetchedCount = cloudResults.size,
+                    mergedCount = 1,
+                    lastSyncEpoch = now,
+                    lastReadEpoch = now,
+                )
+                preferencesRepository.updateCloudMetadata(report)
+                merged
+            } else {
+                prediction
+            }
+        }.getOrElse {
+            prediction
+        }
+    }
+
     suspend fun sync(
         appVersion: String,
         forceUpload: Boolean = false,
@@ -245,6 +350,50 @@ class CloudCollaborativeRepository(
         return report
     }
 }
+
+data class CloudPreparedPrediction(
+    val prediction: PredictionEntity,
+    val request: CloudAiRequestOutcome,
+)
+
+sealed class CloudAiRequestOutcome(
+    val status: String,
+    val message: String,
+) {
+    data object Requested : CloudAiRequestOutcome("requested", "demande IA cloud envoyee")
+    data object AlreadyAvailable : CloudAiRequestOutcome("available", "analyse IA cloud deja disponible")
+    data object Disabled : CloudAiRequestOutcome("disabled", "cloud collaboratif desactive")
+    data object FirebaseUnavailable : CloudAiRequestOutcome("firebase_unavailable", "Firebase indisponible ou non configure")
+    data class NotQueued(private val reason: String) : CloudAiRequestOutcome("not_queued", reason)
+    data class Failed(private val reason: String) : CloudAiRequestOutcome("failed", reason)
+}
+
+private fun PredictionEntity.withCloudAiRequestDiagnostic(outcome: CloudAiRequestOutcome): PredictionEntity {
+    if (aiAnalysis.hasValidCloudAiAnalysis()) return this
+    return copy(
+        aiDiagnostic = buildString {
+            append("{")
+            append("\"aiRequestStatus\":\"").append(outcome.status.escapeJson()).append("\",")
+            append("\"aiRequestMessage\":\"").append(outcome.message.escapeJson()).append("\",")
+            append("\"aiRequestUpdatedAt\":").append(System.currentTimeMillis())
+            append("}")
+        },
+    )
+}
+
+private fun String.escapeJson(): String =
+    buildString {
+        for (char in this@escapeJson) {
+            when (char) {
+                '\\' -> append("\\\\")
+                '"' -> append("\\\"")
+                '\n' -> append("\\n")
+                '\r' -> append("\\r")
+                '\t' -> append("\\t")
+                else -> append(char)
+            }
+        }
+    }
 
 interface CloudCollaborativeRemoteDataSource {
     fun isAvailable(): Boolean

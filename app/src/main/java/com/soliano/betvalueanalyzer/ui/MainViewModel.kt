@@ -377,6 +377,9 @@ class MainViewModel(
     }
 
     fun analyzeEvent(event: UpcomingEventEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            cloudCollaborativeRepository.requestAiAnalysisForEvent(BuildConfig.VERSION_NAME, event)
+        }
         eventDeepTarget(event)?.let { target ->
             launchDeepAnalysis(target)
             return
@@ -461,13 +464,15 @@ class MainViewModel(
         deepAnalysisJob = viewModelScope.launch {
             val cacheKey = target.deepCacheKey()
             deepPredictionCache[cacheKey]?.let { cached ->
-                _deepAnalysis.value = DeepAnalysisStatus.Ready(cached)
+                _deepAnalysis.value = DeepAnalysisStatus.Running(target, 0.86, "Verification IA cloud")
+                val prepared = preparePredictionForDetail(cached)
+                _deepAnalysis.value = DeepAnalysisStatus.Ready(prepared)
                 return@launch
             }
             deepAnalysisTasks[cacheKey]?.let { running ->
                 _deepAnalysis.value = DeepAnalysisStatus.Running(target, 0.72, "Dossier préchargé en cours d'ouverture")
                 runCatching { running.await() }
-                    .onSuccess { prediction -> _deepAnalysis.value = DeepAnalysisStatus.Ready(prediction) }
+                    .onSuccess { prediction -> _deepAnalysis.value = DeepAnalysisStatus.Ready(preparePredictionForDetail(prediction)) }
                     .onFailure { error -> _deepAnalysis.value = DeepAnalysisStatus.Error(target, error.userSyncMessage("Analyse approfondie impossible.")) }
                 return@launch
             }
@@ -480,14 +485,20 @@ class MainViewModel(
                 }
             }.onSuccess { prediction ->
                 val cleaned = prediction.cleanedForDisplay()
-                deepPredictionCache[cacheKey] = cleaned
-                withContext(Dispatchers.Default) { StructuredAnalysisCache.getOrBuild(cleaned) }
-                _deepAnalysis.value = DeepAnalysisStatus.Ready(cleaned)
+                val prepared = preparePredictionForDetail(cleaned)
+                deepPredictionCache[cacheKey] = prepared
+                withContext(Dispatchers.Default) { StructuredAnalysisCache.getOrBuild(prepared) }
+                _deepAnalysis.value = DeepAnalysisStatus.Ready(prepared)
             }.onFailure { error ->
                 _deepAnalysis.value = DeepAnalysisStatus.Error(target, error.userSyncMessage("Analyse approfondie impossible."))
             }
         }
     }
+
+    private suspend fun preparePredictionForDetail(prediction: PredictionEntity): PredictionEntity =
+        withContext(Dispatchers.IO) {
+            cloudCollaborativeRepository.preparePredictionForDetail(BuildConfig.VERSION_NAME, prediction).prediction
+        }.cleanedForDisplay()
 
     private fun startDeepAnalysisTask(target: DeepAnalysisTarget): Deferred<PredictionEntity> {
         val cacheKey = target.deepCacheKey()

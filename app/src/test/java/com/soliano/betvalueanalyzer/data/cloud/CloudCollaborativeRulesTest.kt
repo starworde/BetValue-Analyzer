@@ -198,6 +198,39 @@ class CloudCollaborativeRulesTest {
     }
 
     @Test
+    fun `fiche ouverte cree une demande IA meme sans favori`() {
+        val request = prediction().copy(aiAnalysis = "", aiGeneratedAt = 0L).toCloudAiAnalysisRequest(
+            appVersion = "5.2.0",
+            deviceId = "anon-device",
+            now = now,
+            favoriteSports = emptySet(),
+            favoriteCompetitions = emptySet(),
+            forceOpenedPriority = true,
+        )
+
+        assertNotNull(request)
+        assertEquals("opened_event_priority", request!!.reason)
+        assertTrue(request.priority >= 180)
+        assertEquals("pending", request.status)
+    }
+
+    @Test
+    fun `evenement calendrier ouvert cree une demande IA prioritaire`() {
+        val request = upcomingEvent().toCloudAiAnalysisRequest(
+            appVersion = "5.2.0",
+            deviceId = "anon-device",
+            now = now,
+            favoriteSports = emptySet(),
+            favoriteCompetitions = emptySet(),
+            forceOpenedPriority = true,
+        )
+
+        assertNotNull(request)
+        assertEquals("opened_event_priority", request!!.reason)
+        assertTrue(request.priority >= 180)
+    }
+
+    @Test
     fun `aucune donnee personnelle nest envoyee`() {
         val keys = prediction().toCloudSharedResult("4.70.0", "anon-device", now)!!
             .toFirestoreMap()

@@ -289,6 +289,7 @@ fun PredictionEntity.toCloudAiAnalysisRequest(
     now: Long,
     favoriteSports: Set<String>,
     favoriteCompetitions: Set<String>,
+    forceOpenedPriority: Boolean = false,
 ): CloudAiAnalysisRequest? {
     val sport = sportKey.substringBefore('/').trim()
     if (eventId.isBlank() || sport.isBlank() || competitionName.isBlank()) return null
@@ -298,7 +299,7 @@ fun PredictionEntity.toCloudAiAnalysisRequest(
     val competitionKey = competitionFavoriteKey(sport, competitionName)
     val sportFavorite = sport in favoriteSports
     val competitionFavorite = competitionKey in favoriteCompetitions
-    if (!sportFavorite && !competitionFavorite) return null
+    if (!forceOpenedPriority && !sportFavorite && !competitionFavorite) return null
     val alreadyFresh = aiAnalysis.hasValidCloudAiAnalysis() &&
         aiGeneratedAt > 0L &&
         now - aiGeneratedAt <= 12 * 60 * 60 * 1000L
@@ -310,7 +311,10 @@ fun PredictionEntity.toCloudAiAnalysisRequest(
         startsInMinutes in (72 * 60 + 1)..(14 * 24 * 60) -> 10
         else -> 0
     }
-    val favoriteWeight = (if (competitionFavorite) 90 else 0) + (if (sportFavorite) 55 else 0)
+    val favoriteWeight = when {
+        forceOpenedPriority -> 145
+        else -> (if (competitionFavorite) 90 else 0) + (if (sportFavorite) 55 else 0)
+    }
     val event = listOf(homeTeam, awayTeam)
         .filter { it.isNotBlank() }
         .joinToString(" — ")
@@ -327,6 +331,7 @@ fun PredictionEntity.toCloudAiAnalysisRequest(
         participantB = awayTeam.trimCloudText(140),
         priority = (favoriteWeight + urgency + confidenceScore.coerceIn(0, 100) / 10).coerceIn(1, 200),
         reason = when {
+            forceOpenedPriority -> "opened_event_priority"
             competitionFavorite && sportFavorite -> "competition_and_sport_priority"
             competitionFavorite -> "competition_priority"
             else -> "sport_priority"
@@ -344,6 +349,7 @@ fun UpcomingEventEntity.toCloudAiAnalysisRequest(
     now: Long,
     favoriteSports: Set<String>,
     favoriteCompetitions: Set<String>,
+    forceOpenedPriority: Boolean = false,
 ): CloudAiAnalysisRequest? {
     val sport = sportKey.substringBefore('/').trim()
     if (id.isBlank() || sport.isBlank() || competitionName.isBlank()) return null
@@ -353,7 +359,7 @@ fun UpcomingEventEntity.toCloudAiAnalysisRequest(
     val resolvedCompetitionKey = competitionKey.ifBlank { competitionFavoriteKey(sport, competitionName) }
     val sportFavorite = sport in favoriteSports
     val competitionFavorite = resolvedCompetitionKey in favoriteCompetitions
-    if (!sportFavorite && !competitionFavorite) return null
+    if (!forceOpenedPriority && !sportFavorite && !competitionFavorite) return null
     val startsInMinutes = (commenceTime - now) / 60_000L
     val urgency = when {
         startsInMinutes in -120..180 -> 35
@@ -374,8 +380,9 @@ fun UpcomingEventEntity.toCloudAiAnalysisRequest(
         eventDate = commenceTime,
         participantA = participantA.trimCloudText(140),
         participantB = participantB.trimCloudText(140),
-        priority = ((if (competitionFavorite) 90 else 0) + (if (sportFavorite) 55 else 0) + urgency).coerceIn(1, 200),
+        priority = ((if (forceOpenedPriority) 145 else 0) + (if (competitionFavorite) 90 else 0) + (if (sportFavorite) 55 else 0) + urgency).coerceIn(1, 200),
         reason = when {
+            forceOpenedPriority -> "opened_event_priority"
             competitionFavorite && sportFavorite -> "competition_and_sport_priority"
             competitionFavorite -> "competition_priority"
             else -> "sport_priority"

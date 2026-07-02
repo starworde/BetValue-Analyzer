@@ -317,6 +317,7 @@ function aiPriorityScore(result, event, mode, aiRequest = null) {
     const requestPriority = Number(aiRequest.priority || 0);
     score += 160 + Math.min(120, Math.max(0, requestPriority));
     if (String(aiRequest.reason || "").includes("competition")) score += 30;
+    if (String(aiRequest.reason || "") === "opened_event_priority") score += 70;
   }
   const startsInHours = (result.eventDate - Date.now()) / (60 * 60 * 1000);
   if (startsInHours >= -2 && startsInHours <= 72) score += 35;

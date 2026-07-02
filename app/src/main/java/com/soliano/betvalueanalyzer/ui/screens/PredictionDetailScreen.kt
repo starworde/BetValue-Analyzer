@@ -101,6 +101,7 @@ fun PredictionDetailScreen(
 ) {
     val accent = categoryColor(prediction.category)
     val cloudAiReading = remember(prediction.aiAnalysis, prediction.aiDiagnostic) { cloudAiReadingOrNull(prediction) }
+    val cloudRequestStatus = remember(prediction.aiDiagnostic) { cloudAiRequestStatus(prediction) }
     var dossier by remember(prediction.id) { mutableStateOf(StructuredAnalysisCache.get(prediction)) }
     LaunchedEffect(
         prediction.id,
@@ -189,7 +190,12 @@ fun PredictionDetailScreen(
         }
 
         item {
-            PredictionSection(if (cloudAiReading != null) "Analyse IA approfondie" else "Analyse IA cloud", Icons.Outlined.Info, accent) {
+            val cloudSectionTitle = when {
+                cloudAiReading != null -> "Analyse IA disponible"
+                cloudRequestStatus?.first == "requested" -> "Analyse IA demandee"
+                else -> "Diagnostic IA cloud"
+            }
+            PredictionSection(cloudSectionTitle, Icons.Outlined.Info, accent) {
                 if (cloudAiReading != null) {
                     CloudAiReadingCard(cloudAiReading, accent)
                 } else {
@@ -447,6 +453,14 @@ private fun cloudAiUnavailableReason(prediction: PredictionEntity): String {
         .ifBlank { prediction.aiDiagnostic.parseCloudJsonObjectOrNull()?.textListField("iaRepondues")?.joinToString(" + ").orEmpty() }
     if (looksLikeLegacyLocalCloudAnalysis(analysis, providerLabel)) return "ancienne analyse générique rejetée"
     return "analyse cloud non affichable avec les champs actuels"
+}
+
+private fun cloudAiRequestStatus(prediction: PredictionEntity): Pair<String, String>? {
+    val diagnostic = prediction.aiDiagnostic.parseCloudJsonObjectOrNull() ?: return null
+    val status = diagnostic.textField("aiRequestStatus")
+    val message = diagnostic.textField("aiRequestMessage")
+    if (status.isBlank() && message.isBlank()) return null
+    return status to message
 }
 
 private fun MutableList<CloudAiSection>.addCloudSection(title: String, vararg rawLines: String) {
@@ -1755,6 +1769,11 @@ private fun CloudAiReadingCard(reading: CloudAiReading, accent: Color) {
 
 @Composable
 private fun CloudAiPendingCard(prediction: PredictionEntity, accent: Color, reason: String) {
+    val requestStatus = cloudAiRequestStatus(prediction)
+    val requestMessage = requestStatus?.second.orEmpty()
+    val requestSent = requestStatus?.first == "requested"
+    val title = if (requestSent) "Analyse IA demandee" else "IA cloud indisponible"
+    val subtitle = requestMessage.ifBlank { if (requestSent) "file IA prioritaire" else "diagnostic disponible" }
     Surface(shape = RoundedCornerShape(22.dp), color = accent.copy(alpha = 0.10f)) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
             Row(
@@ -1762,9 +1781,9 @@ private fun CloudAiPendingCard(prediction: PredictionEntity, accent: Color, reas
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Tag("IA cloud en attente", accent)
+                Tag(title, accent)
                 Text(
-                    "aucune pré-analyse locale affichée",
+                    subtitle,
                     style = MaterialTheme.typography.labelMedium,
                     color = TextSecondary,
                     maxLines = 1,
@@ -1773,12 +1792,16 @@ private fun CloudAiPendingCard(prediction: PredictionEntity, accent: Color, reas
                 )
             }
             Text(
-                "La vraie analyse IA approfondie n’est pas encore synchronisée pour ce match.",
+                if (requestSent) {
+                    "Cette fiche est dans la file IA cloud prioritaire. Le prochain passage GitHub Actions doit produire l'analyse externe si le quota repond."
+                } else {
+                    "Aucune analyse IA cloud valide n'est encore rattachee a cette fiche."
+                },
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurface,
             )
             Text(
-                "Raison : $reason. Actualise les données ou rouvre la fiche après la prochaine synchro cloud.",
+                "Diagnostic : $reason.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = TextSecondary,
             )

@@ -48,7 +48,7 @@ service cloud.firestore {
         && data.keys().hasOnly(allowedAiRequestKeys())
         && data.documentType == 'ai_request'
         && data.status == 'pending'
-        && data.reason in ['sport_priority', 'competition_priority', 'competition_and_sport_priority']
+        && data.reason in ['sport_priority', 'competition_priority', 'competition_and_sport_priority', 'opened_event_priority']
         && isNonEmptyString(data.eventId, 220)
         && isNonEmptyString(data.sport, 80)
         && isNonEmptyString(data.competition, 180)
