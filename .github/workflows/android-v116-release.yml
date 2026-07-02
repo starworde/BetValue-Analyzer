@@ -1,4 +1,4 @@
-name: Android V115 release
+name: Android V116 release
 
 on:
   workflow_dispatch:
@@ -6,14 +6,14 @@ on:
     branches:
       - main
     paths:
-      - ".github/workflows/android-v115-release.yml"
+      - ".github/workflows/android-v116-release.yml"
 
 permissions:
   contents: write
 
 jobs:
   build-release-apk:
-    name: Build and publish APK V115
+    name: Build and publish APK V116
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -30,14 +30,14 @@ jobs:
       - name: Prepare Gradle
         run: chmod +x ./gradlew
 
-      - name: Test, lint and export V115 APK
+      - name: Test, lint and export V116 APK
         run: ./gradlew testDebugUnitTest lintDebug exportVersionedApk --no-daemon --stacktrace
 
       - name: Check APK
         shell: bash
         run: |
-          test -f output/apk/BetValueAnalyzer-v115.apk
-          sha256sum output/apk/BetValueAnalyzer-v115.apk > output/apk/BetValueAnalyzer-v115.sha256
+          test -f output/apk/BetValueAnalyzer-v116.apk
+          sha256sum output/apk/BetValueAnalyzer-v116.apk > output/apk/BetValueAnalyzer-v116.sha256
           ls -lh output/apk/
 
       - name: Publish GitHub release
@@ -45,9 +45,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          gh release delete v115 --yes --cleanup-tag || true
-          gh release create v115 \
-            output/apk/BetValueAnalyzer-v115.apk \
-            output/apk/BetValueAnalyzer-v115.sha256 \
-            --title "BetValue Analyzer V115" \
-            --notes "APK V115 construit automatiquement depuis main. Version Android: 5.1.1 / versionCode 115. Ancienne pre-analyse locale masquee, analyses IA anciennes ou generiques refusees, diagnostic cloud nettoye, messages 429 rendus lisibles, web app alignee."
+          gh release delete v116 --yes --cleanup-tag || true
+          gh release create v116 \
+            output/apk/BetValueAnalyzer-v116.apk \
+            output/apk/BetValueAnalyzer-v116.sha256 \
+            --title "BetValue Analyzer V116" \
+            --notes "APK V116 construit automatiquement depuis main. Version Android: 5.1.2 / versionCode 116. Analyse IA cloud demandee sur fiche ouverte, job IA leger toutes les 15 minutes, matching corrige entre noms de competitions traduits, lecture directe Firestore par evenement et audit lint/tests OK."
