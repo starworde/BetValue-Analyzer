@@ -33,11 +33,11 @@ const REQUIRED_JSON_KEYS = [
 ];
 
 const PAID_PROVIDERS_DISABLED = [
-  "OpenAI API directe avec clé utilisateur",
-  "Claude / Anthropic direct avec clé utilisateur",
+  "OpenAI API directe dans l'APK",
+  "Claude / Anthropic direct dans l'APK",
   "xAI / Grok direct avec clé utilisateur",
   "Cohere direct avec clé utilisateur",
-  "Toute clé payante, facturation obligatoire ou carte bancaire dans l’APK",
+  "Toute clé payante, facturation obligatoire ou carte bancaire dans l'APK",
 ];
 
 export function multiAiProviderDiagnostics() {
@@ -84,6 +84,7 @@ export async function enrichResultsWithMultiAi({
   const targetIds = new Set(targets.map((result) => result.eventId));
   const output = [];
   const fulfilledRequestIds = new Set();
+  const disabledProviderIds = new Set();
   let targetIndex = 0;
 
   for (const result of results) {
@@ -105,13 +106,10 @@ export async function enrichResultsWithMultiAi({
       output.push(result);
       continue;
     }
-    if (diagnostics.aiQuotaReached) {
-      output.push(result);
-      continue;
-    }
     targetIndex += 1;
 
-    if (providers.length === 0) {
+    const availableProviders = providers.filter((provider) => !disabledProviderIds.has(provider.id));
+    if (availableProviders.length === 0) {
       diagnostics.aiFallbackUsed += 1;
       console.log(`[ai] ${targetIndex}/${targets.length} IA externe indisponible, résultat conservé sans fausse analyse ${compactAiText(result.eventName || result.eventId, 90)}`);
       output.push(result);
@@ -119,14 +117,17 @@ export async function enrichResultsWithMultiAi({
     }
 
     const dossier = buildAiInputDossier(result, event, newsContext);
-    const selectedProviders = selectProvidersForMode(providers, diagnostics.aiMode, result, event);
-    console.log(`[ai] ${targetIndex}/${targets.length} appel ${selectedProviders.map((provider) => provider.label).join(" + ")} · ${compactAiText(result.eventName || result.eventId, 90)}`);
-    diagnostics.aiCalled += selectedProviders.length;
+    const providerPlan = providerCallPlanForMode(availableProviders, diagnostics.aiMode, result, event);
+    console.log(`[ai] ${targetIndex}/${targets.length} objectif=${providerPlan.desiredResponses} IA, candidats=${providerPlan.candidates.map((provider) => provider.label).join(" + ")} · ${compactAiText(result.eventName || result.eventId, 90)}`);
     const startedAt = Date.now();
+    const calledProviders = [];
     const providerResponses = [];
     const providerErrors = [];
-    for (const provider of selectedProviders) {
+    for (const provider of providerPlan.candidates) {
+      if (providerResponses.length >= providerPlan.desiredResponses) break;
       const callStart = Date.now();
+      calledProviders.push(provider);
+      diagnostics.aiCalled += 1;
       try {
         const response = await callProvider(provider, dossier);
         providerResponses.push({
@@ -139,7 +140,10 @@ export async function enrichResultsWithMultiAi({
         const message = compactAiText(error?.message || String(error), 260);
         providerErrors.push(`${provider.label}: ${message}`);
         diagnostics.aiErrors.push(`${provider.label}: ${message}`);
-        if (isQuotaError(error)) diagnostics.aiQuotaReached = true;
+        if (isProviderDisablingError(error)) {
+          disabledProviderIds.add(provider.id);
+          if (isQuotaError(error)) diagnostics.aiQuotaReached = true;
+        }
       }
       await sleep(120);
     }
@@ -161,7 +165,7 @@ export async function enrichResultsWithMultiAi({
       responseMs: Date.now() - startedAt,
       mode: diagnostics.aiMode,
       providers,
-      called: selectedProviders,
+      called: calledProviders,
     });
     if (providerResponses.length >= 2) diagnostics.aiFusionCount += 1;
     console.log(`[ai] ${targetIndex}/${targets.length} réponse(s) IA=${providerResponses.length}`);
@@ -214,7 +218,7 @@ export function buildAiInputDossier(result, event, newsContext) {
 }
 
 function allFreeProviderNames() {
-  return ["GitHub Models via Actions", "Gemini free tier", "Groq free tier", "Mistral free si disponible", "OpenRouter modèles :free"];
+  return ["GitHub Models via Actions", "Gemini free tier", "Claude / Anthropic via backend", "Groq free tier", "Mistral free si disponible", "OpenRouter modèles :free"];
 }
 
 function configuredFreeProviders() {
@@ -244,7 +248,7 @@ function configuredFreeProviders() {
       });
     });
   }
-  if (process.env.GEMINI_API_KEY) {
+  if (process.env.GEMINI_API_KEY && process.env.GEMINI_ENABLED !== "0") {
     providers.push({
       id: "gemini",
       label: "Gemini free tier",
@@ -252,6 +256,19 @@ function configuredFreeProviders() {
       apiKey: process.env.GEMINI_API_KEY,
       kind: "gemini",
       family: "gemini",
+    });
+  }
+  const anthropicApiKey = process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
+  if (anthropicApiKey && process.env.ANTHROPIC_ENABLED !== "0" && process.env.CLAUDE_ENABLED !== "0") {
+    providers.push({
+      id: "claude",
+      label: "Claude / Anthropic",
+      model: process.env.ANTHROPIC_MODEL || process.env.CLAUDE_MODEL || "claude-3-5-haiku-latest",
+      fallbackModels: parseCsv(process.env.ANTHROPIC_FALLBACK_MODELS || process.env.CLAUDE_FALLBACK_MODELS || ""),
+      apiKey: anthropicApiKey,
+      endpoint: process.env.ANTHROPIC_ENDPOINT || "https://api.anthropic.com/v1/messages",
+      kind: "anthropic",
+      family: "claude",
     });
   }
   if (process.env.GROQ_API_KEY) {
@@ -326,14 +343,25 @@ function normalizedAiMode() {
   return "automatique";
 }
 
-function selectProvidersForMode(providers, mode, result) {
+function providerCallPlanForMode(providers, mode, result) {
   const diversified = diversifyProviders(providers);
-  if (diversified.length <= 1) return diversified;
-  if (mode === "economique") return diversified.slice(0, 1);
-  if (mode === "double") return diversified.slice(0, 2);
-  if (mode === "renforce" || mode === "complet") return diversified;
+  if (diversified.length <= 1) {
+    return { candidates: diversified, desiredResponses: diversified.length };
+  }
+  if (mode === "economique") {
+    return { candidates: diversified, desiredResponses: 1 };
+  }
+  if (mode === "double") {
+    return { candidates: diversified, desiredResponses: Math.min(2, diversified.length) };
+  }
+  if (mode === "renforce" || mode === "complet") {
+    return { candidates: diversified, desiredResponses: diversified.length };
+  }
   const fragile = result.confidenceScore < 63 || ["exotique", "mitige"].includes(String(result.category).toLowerCase());
-  return fragile ? diversified.slice(0, Math.min(2, diversified.length)) : diversified.slice(0, 1);
+  return {
+    candidates: diversified,
+    desiredResponses: fragile ? Math.min(2, diversified.length) : 1,
+  };
 }
 
 function diversifyProviders(providers) {
@@ -568,6 +596,8 @@ async function callProvider(provider, dossier) {
   const prompt = buildPrompt(dossier);
   const raw = provider.kind === "gemini"
     ? await callGemini(provider, prompt)
+    : provider.kind === "anthropic"
+      ? await callAnthropic(provider, prompt)
     : await callOpenAiCompatible(provider, prompt);
   const parsed = parseJsonObject(raw);
   return normalizeAiResponse(parsed, provider);
@@ -588,6 +618,42 @@ async function callGemini(provider, prompt) {
     .map((part) => part.text || "")
     .join("\n")
     .trim();
+}
+
+async function callAnthropic(provider, prompt) {
+  const modelCandidates = [...new Set([provider.model, ...(provider.fallbackModels || [])].filter(Boolean))];
+  let lastError = null;
+  for (const model of modelCandidates) {
+    try {
+      const json = await postJson(provider.endpoint, {
+        model,
+        max_tokens: 950,
+        temperature: 0.2,
+        system: "Tu es un analyste sportif. Réponds uniquement en JSON valide.",
+        messages: [
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
+      }, {
+        "x-api-key": provider.apiKey,
+        "anthropic-version": process.env.ANTHROPIC_VERSION || "2023-06-01",
+      });
+      const content = (json.content || [])
+        .map((part) => part?.text || "")
+        .filter(Boolean)
+        .join("\n")
+        .trim();
+      if (content) return content;
+      throw new Error(`Réponse vide du modèle Claude ${model}`);
+    } catch (error) {
+      lastError = error;
+      if (error?.status === 401 || error?.status === 429) throw error;
+      if (![400, 403, 404].includes(Number(error?.status || 0))) throw error;
+    }
+  }
+  throw lastError || new Error("Aucun modèle Claude n'a répondu");
 }
 
 async function callOpenAiCompatible(provider, prompt) {
@@ -1114,8 +1180,13 @@ function chunked(values, size) {
   return chunks;
 }
 
+function isProviderDisablingError(error) {
+  const status = Number(error?.status || 0);
+  return [401, 403, 429].includes(status) || /quota|rate limit|resource_exhausted|too many requests|invalid api key|unauthorized|forbidden|permission/i.test(error?.message || "");
+}
+
 function isQuotaError(error) {
-  return error?.status === 429 || /quota|rate limit|resource_exhausted|too many requests|models/i.test(error?.message || "");
+  return error?.status === 429 || /quota|rate limit|resource_exhausted|too many requests/i.test(error?.message || "");
 }
 
 function sleep(ms) {

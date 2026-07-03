@@ -33,7 +33,15 @@ Secrets IA gratuits optionnels en renfort :
 - `MISTRAL_API_KEY` avec `MISTRAL_FREE_ENABLED=1` seulement si l’usage gratuit est confirmé
 - `OPENROUTER_API_KEY` avec `OPENROUTER_FREE_MODEL` contenant obligatoirement `:free`
 
-Fournisseurs payants directs désactivés dans le diagnostic : clés OpenAI/Claude/xAI/Cohere côté APK ou services à facturation obligatoire.
+Fournisseurs IA backend optionnels, jamais dans l'APK :
+
+- `ANTHROPIC_API_KEY` ou `CLAUDE_API_KEY` active Claude via l'API Messages Anthropic côté GitHub Actions.
+- `ANTHROPIC_MODEL` ou `CLAUDE_MODEL` permet de choisir le modèle Claude, par défaut `claude-3-5-haiku-latest`.
+- `ANTHROPIC_FALLBACK_MODELS` ou `CLAUDE_FALLBACK_MODELS` peut contenir une liste séparée par virgules.
+- `ANTHROPIC_ENABLED=0` ou `CLAUDE_ENABLED=0` désactive Claude même si une clé existe.
+- `GEMINI_ENABLED=0` désactive Gemini même si une clé existe.
+
+Les clés OpenAI/Claude/Gemini ne sont jamais lues depuis Android. Elles doivent rester dans les secrets GitHub/Firebase/backend.
 
 ## Variables utiles
 
@@ -42,6 +50,8 @@ Fournisseurs payants directs désactivés dans le diagnostic : clés OpenAI/Clau
 - `AI_CACHE_TTL_HOURS` : durée de réutilisation du cache IA Firestore.
 - `EVENT_LOOKAHEAD_DAYS` : horizon calendrier.
 - `MAX_RESULTS_TO_WRITE` : limite d’écriture Firestore par run.
+
+En mode `double`, le job vise deux réponses IA issues de familles différentes quand elles sont disponibles. Si GitHub Models, Gemini ou Claude échoue, renvoie une 401/403/429 ou atteint son quota, le job tente le fournisseur suivant au lieu de bloquer toute l'analyse.
 
 ## Commandes
 
