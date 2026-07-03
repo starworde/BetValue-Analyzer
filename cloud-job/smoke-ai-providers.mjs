@@ -30,6 +30,7 @@ const reportPath = process.env.AI_SMOKE_REPORT_PATH || "ai-smoke-report.json";
 const delayMs = Number(process.env.AI_SMOKE_DELAY_MS || 1500);
 const quotaRetries = Number(process.env.AI_SMOKE_QUOTA_RETRIES || 0);
 const quotaRetryDelayMs = Number(process.env.AI_SMOKE_QUOTA_RETRY_DELAY_MS || 10000);
+const allowQuotaFallback = process.env.AI_SMOKE_ALLOW_QUOTA_FALLBACK === "1" || smokeScope !== "full";
 
 const report = {
   status: "success",
@@ -90,13 +91,31 @@ for (const sport of sports) {
 }
 
 const counts = countBy(report.results.map((result) => result.status));
+const sportCoverage = sports.map((sport) => ({
+  sport,
+  ok: report.results.some((result) => result.sport === sport && result.status === "ok"),
+}));
+const allSportsCovered = sportCoverage.every((entry) => entry.ok);
 report.summary = {
   ok: counts.ok || 0,
   skipped: report.skippedProviders.length,
   error: counts.error || 0,
   quota: counts.quota || 0,
+  allSportsCovered,
+  sportsCovered: sportCoverage.filter((entry) => entry.ok).length,
+  degradedProviders: report.results.filter((result) => result.status === "quota").map((result) => result.provider?.label).filter(Boolean),
 };
 if ((report.summary.error > 0 || report.summary.quota > 0) && failOnProviderError) {
+  if (allowQuotaFallback && report.summary.error === 0 && allSportsCovered) {
+    report.status = "success_degraded";
+  } else {
+    report.status = "failed";
+  }
+}
+if (report.summary.error === 0 && report.summary.quota > 0 && allowQuotaFallback && allSportsCovered) {
+  report.status = "success_degraded";
+}
+if (report.summary.error === 0 && !allSportsCovered) {
   report.status = "failed";
 }
 await finish(report);

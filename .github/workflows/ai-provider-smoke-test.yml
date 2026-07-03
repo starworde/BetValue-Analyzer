@@ -87,6 +87,7 @@ jobs:
           AI_SMOKE_DELAY_MS: ${{ inputs.scope == 'full' && '4500' || '1000' }}
           AI_SMOKE_QUOTA_RETRIES: ${{ inputs.scope == 'full' && '2' || '0' }}
           AI_SMOKE_QUOTA_RETRY_DELAY_MS: ${{ inputs.scope == 'full' && '45000' || '10000' }}
+          AI_SMOKE_ALLOW_QUOTA_FALLBACK: ${{ inputs.scope == 'full' && '0' || '1' }}
           AI_SMOKE_SCOPE: ${{ inputs.scope }}
           AI_SMOKE_PROVIDERS: ${{ inputs.providers }}
           AI_SMOKE_SPORTS: ${{ inputs.sports }}

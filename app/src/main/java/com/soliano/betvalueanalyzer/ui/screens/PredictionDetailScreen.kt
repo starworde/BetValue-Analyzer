@@ -1,6 +1,7 @@
 package com.soliano.betvalueanalyzer.ui.screens
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -52,6 +53,8 @@ import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.soliano.betvalueanalyzer.data.local.PredictionEntity
+import com.soliano.betvalueanalyzer.domain.LocalAiReading
+import com.soliano.betvalueanalyzer.domain.LocalAnalysisAssistant
 import com.soliano.betvalueanalyzer.ui.t
 import com.soliano.betvalueanalyzer.ui.components.StructuredActorBlock
 import com.soliano.betvalueanalyzer.ui.components.StructuredActorStatRequirementBlock
@@ -102,6 +105,7 @@ fun PredictionDetailScreen(
     val accent = categoryColor(prediction.category)
     val cloudAiReading = remember(prediction.aiAnalysis, prediction.aiDiagnostic) { cloudAiReadingOrNull(prediction) }
     val cloudRequestStatus = remember(prediction.aiDiagnostic) { cloudAiRequestStatus(prediction) }
+    val localAiReading = remember(prediction) { LocalAnalysisAssistant.explain(prediction) }
     var dossier by remember(prediction.id) { mutableStateOf(StructuredAnalysisCache.get(prediction)) }
     LaunchedEffect(
         prediction.id,
@@ -191,15 +195,15 @@ fun PredictionDetailScreen(
 
         item {
             val cloudSectionTitle = when {
-                cloudAiReading != null -> "Analyse IA disponible"
-                cloudRequestStatus?.first == "requested" -> "Analyse IA demandee"
-                else -> "Diagnostic IA cloud"
+                cloudAiReading != null -> "Analyse IA cloud"
+                cloudRequestStatus?.first == "requested" -> "Analyse IA approfondie"
+                else -> "Analyse IA approfondie"
             }
             PredictionSection(cloudSectionTitle, Icons.Outlined.Info, accent) {
                 if (cloudAiReading != null) {
                     CloudAiReadingCard(cloudAiReading, accent)
                 } else {
-                    CloudAiPendingCard(prediction, accent, cloudAiUnavailableReason(prediction))
+                    LocalAiReadingCard(localAiReading, accent)
                 }
             }
         }
@@ -1763,6 +1767,84 @@ private fun CloudAiReadingCard(reading: CloudAiReading, accent: Color) {
             if (reading.diagnosticLines.isNotEmpty()) {
                 LocalAiMiniBlock("Sources IA", reading.diagnosticLines, Blue, maxLines = 4)
             }
+        }
+    }
+}
+
+@Composable
+private fun LocalAiReadingCard(reading: LocalAiReading, accent: Color) {
+    val priorityTitles = listOf(
+        "Analyse IA approfondie",
+        "Lecture globale",
+        "Analyse tactique",
+        "Dernières nouvelles",
+        "Pourquoi le favori",
+        "Pourquoi l’outsider",
+        "Conclusion",
+        "Sources",
+    )
+    val analyticalSections = reading.sections
+        .filterNot { it.title.equals("Résumé rapide", ignoreCase = true) }
+        .sortedBy { section ->
+            val index = priorityTitles.indexOfFirst { wanted -> section.title.contains(wanted, ignoreCase = true) }
+            if (index >= 0) index else 99
+        }
+        .distinctBy { it.title.canonicalNameKey() }
+        .take(7)
+
+    Surface(shape = RoundedCornerShape(22.dp), color = accent.copy(alpha = 0.11f), border = BorderStroke(1.dp, accent.copy(alpha = 0.18f))) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Tag(reading.status.label, accent)
+                Text(
+                    "local · immédiat",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = TextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f).padding(start = 10.dp),
+                )
+            }
+            Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f)) {
+                Column(Modifier.fillMaxWidth().padding(13.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    Text(
+                        cleanDisplayText(reading.summary),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        cleanDisplayText(reading.sportVocabulary),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = TextSecondary,
+                    )
+                }
+            }
+
+            analyticalSections.forEach { section ->
+                val color = when {
+                    section.title.contains("favori", ignoreCase = true) -> Amber
+                    section.title.contains("outsider", ignoreCase = true) -> Mint
+                    section.title.contains("nouvelle", ignoreCase = true) -> Amber
+                    section.title.contains("source", ignoreCase = true) -> Blue
+                    section.title.contains("conclusion", ignoreCase = true) -> accent
+                    section.title.contains("tactique", ignoreCase = true) -> Violet
+                    else -> accent
+                }
+                val max = when {
+                    section.title.contains("Analyse IA", ignoreCase = true) -> 4
+                    section.title.contains("Conclusion", ignoreCase = true) -> 5
+                    section.title.contains("Sources", ignoreCase = true) -> 4
+                    else -> 3
+                }
+                LocalAiMiniBlock(section.title, section.lines, color, maxLines = max)
+            }
+
+            Text(cleanDisplayText(reading.conclusion), style = MaterialTheme.typography.bodyMedium, color = accent, fontWeight = FontWeight.Bold)
         }
     }
 }
