@@ -11,6 +11,8 @@ try {
   testDefaultGithubPoolUsesDifferentFamilies();
   testGeminiAndClaudeBackendProvidersAreDetectedWithoutLeakingSecrets();
   testDoubleModePrioritizesDifferentAiFamilies();
+  testPriorityRequestsUseRedundantAiEvenInEconomicMode();
+  testDispatchRotatesProvidersInsteadOfHammeringFirstModel();
   testProviderDisablingErrors();
   console.log("[test-multi-ai] OK");
 } finally {
@@ -23,7 +25,7 @@ function resetEnv(overrides = {}) {
     GITHUB_TOKEN: "",
     GITHUB_MODELS_ENABLED: "1",
     GITHUB_MODELS_MULTI: "1",
-    GITHUB_MODELS_MULTI_LIMIT: "3",
+    GITHUB_MODELS_MULTI_LIMIT: "",
     GITHUB_MODELS_MODEL: "",
     GITHUB_MODELS_MODEL_POOL: "",
     GITHUB_MODELS_FALLBACK_MODELS: "",
@@ -48,12 +50,20 @@ function testDefaultGithubPoolUsesDifferentFamilies() {
   const providers = multiAiProviderDebugSnapshot();
   assert.deepEqual(
     providers.map((provider) => provider.model),
-    ["mistral-small-2503", "openai/gpt-4o", "openai/gpt-4o-mini"],
-    "Le pool GitHub Models par défaut doit tenter GPT + Mistral + GPT secours.",
+    [
+      "openai/gpt-4.1",
+      "mistral-ai/mistral-medium-2505",
+      "openai/gpt-4o",
+      "meta/llama-4-maverick-17b-128e-instruct-fp8",
+      "meta/llama-4-scout-17b-16e-instruct",
+      "mistral-ai/mistral-small-2503",
+      "openai/gpt-4o-mini",
+    ],
+    "Le pool GitHub Models par défaut doit tenter plusieurs modèles top tier gratuits/testables.",
   );
   assert.deepEqual(
     providers.map((provider) => provider.family),
-    ["mistral", "openai", "openai"],
+    ["openai", "mistral", "openai", "meta", "meta", "mistral", "openai"],
     "Les modèles GitHub doivent être classés par vraie famille IA.",
   );
 }
@@ -92,6 +102,61 @@ function testDoubleModePrioritizesDifferentAiFamilies() {
     plan.candidates.slice(0, 3).map((provider) => provider.family),
     ["openai", "gemini", "claude"],
     "Le fallback doit essayer les familles différentes avant un deuxième modèle OpenAI.",
+  );
+}
+
+function testPriorityRequestsUseRedundantAiEvenInEconomicMode() {
+  const providers = [
+    { id: "mistral", label: "Mistral", family: "mistral" },
+    { id: "gpt", label: "GPT", family: "openai" },
+    { id: "mini", label: "Mini", family: "openai" },
+  ];
+  const plan = __testOnlyMultiAi.providerCallPlanForMode(
+    providers,
+    "economique",
+    { confidenceScore: 78, category: "safe" },
+    null,
+    { priority: 190, reason: "competition_and_sport_priority" },
+  );
+  assert.equal(
+    plan.desiredResponses,
+    2,
+    "Un match favori/prioritaire doit garder deux avis IA meme en mode economique.",
+  );
+  assert.deepEqual(
+    plan.candidates.slice(0, 2).map((provider) => provider.family),
+    ["mistral", "openai"],
+    "La redondance prioritaire doit chercher deux familles IA differentes.",
+  );
+}
+
+function testDispatchRotatesProvidersInsteadOfHammeringFirstModel() {
+  const providers = [
+    { id: "mistral", label: "Mistral", family: "mistral" },
+    { id: "gpt", label: "GPT", family: "openai" },
+    { id: "llama", label: "Llama", family: "meta" },
+  ];
+  const runtime = __testOnlyMultiAi.createProviderRuntimeState(providers);
+  const firstOrder = __testOnlyMultiAi.orderProvidersForDispatch(
+    providers,
+    runtime,
+    { sport: "football" },
+    null,
+    null,
+  );
+  __testOnlyMultiAi.recordProviderAttempt(runtime, firstOrder[0], { sport: "football" }, null);
+  __testOnlyMultiAi.recordProviderSuccess(runtime, firstOrder[0]);
+  const secondOrder = __testOnlyMultiAi.orderProvidersForDispatch(
+    providers,
+    runtime,
+    { sport: "football" },
+    null,
+    null,
+  );
+  assert.notEqual(
+    secondOrder[0].id,
+    firstOrder[0].id,
+    "Le dispatch doit tourner vers une autre IA apres un appel reussi.",
   );
 }
 

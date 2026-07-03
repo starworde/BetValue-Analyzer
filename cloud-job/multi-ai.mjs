@@ -6,8 +6,8 @@ const AI_REQUEST_POOL_SIZE = Number.parseInt(process.env.AI_REQUEST_POOL_SIZE ??
 const AI_CACHE_ENABLED = process.env.AI_CACHE_ENABLED === "1";
 const AI_REQUIRE_REQUESTS = process.env.AI_REQUIRE_REQUESTS === "1";
 const MAX_AI_FIELD = 520;
-const DEFAULT_GITHUB_MODELS_PRIMARY = "mistral-small-2503";
-const DEFAULT_GITHUB_MODELS_FALLBACKS = "openai/gpt-4o,openai/gpt-4o-mini,openai/gpt-4.1-mini";
+const DEFAULT_GITHUB_MODELS_PRIMARY = "openai/gpt-4.1";
+const DEFAULT_GITHUB_MODELS_FALLBACKS = "mistral-ai/mistral-medium-2505,openai/gpt-4o,meta/llama-4-maverick-17b-128e-instruct-fp8,meta/llama-4-scout-17b-16e-instruct,mistral-ai/mistral-small-2503,openai/gpt-4o-mini,openai/gpt-4.1-mini";
 
 const REQUIRED_JSON_KEYS = [
   "titreAnalyse",
@@ -78,6 +78,7 @@ export async function enrichResultsWithMultiAi({
   diagnostics.aiMode = providerState.mode;
 
   const providers = configuredFreeProviders();
+  const providerRuntime = createProviderRuntimeState(providers);
   const aiRequests = db ? await loadAiRequests(db, diagnostics) : [];
   const aiBudget = providers.length > 0 ? MAX_AI_EVENTS : Math.min(MAX_AI_EVENTS, 60);
   const candidates = selectAiTargets(results, eventsById, diagnostics.aiMode, providers.length > 0, AI_TARGET_POOL_SIZE, aiRequests);
@@ -115,7 +116,13 @@ export async function enrichResultsWithMultiAi({
     }
     targetIndex += 1;
 
-    const availableProviders = providers.filter((provider) => !disabledProviderIds.has(provider.id));
+    const availableProviders = orderProvidersForDispatch(
+      providers.filter((provider) => !disabledProviderIds.has(provider.id)),
+      providerRuntime,
+      result,
+      event,
+      aiRequest,
+    );
     if (availableProviders.length === 0) {
       diagnostics.aiFallbackUsed += 1;
       console.log(`[ai] ${targetIndex}/${targets.length} IA externe indisponible, résultat conservé sans fausse analyse ${compactAiText(result.eventName || result.eventId, 90)}`);
@@ -124,7 +131,7 @@ export async function enrichResultsWithMultiAi({
     }
 
     const dossier = buildAiInputDossier(result, event, newsContext);
-    const providerPlan = providerCallPlanForMode(availableProviders, diagnostics.aiMode, result, event);
+    const providerPlan = providerCallPlanForMode(availableProviders, diagnostics.aiMode, result, event, aiRequest);
     console.log(`[ai] ${targetIndex}/${targets.length} objectif=${providerPlan.desiredResponses} IA, candidats=${providerPlan.candidates.map((provider) => provider.label).join(" + ")} · ${compactAiText(result.eventName || result.eventId, 90)}`);
     const startedAt = Date.now();
     const calledProviders = [];
@@ -135,6 +142,7 @@ export async function enrichResultsWithMultiAi({
       const callStart = Date.now();
       calledProviders.push(provider);
       diagnostics.aiCalled += 1;
+      recordProviderAttempt(providerRuntime, provider, result, event);
       try {
         const response = await callProvider(provider, dossier);
         providerResponses.push({
@@ -143,10 +151,12 @@ export async function enrichResultsWithMultiAi({
           responseMs: Date.now() - callStart,
         });
         diagnostics.aiResponded += 1;
+        recordProviderSuccess(providerRuntime, provider);
       } catch (error) {
         const message = compactAiText(error?.message || String(error), 260);
         providerErrors.push(`${provider.label}: ${message}`);
         diagnostics.aiErrors.push(`${provider.label}: ${message}`);
+        recordProviderFailure(providerRuntime, provider, error);
         if (isProviderDisablingError(error)) {
           disabledProviderIds.add(provider.id);
           if (isQuotaError(error)) diagnostics.aiQuotaReached = true;
@@ -184,6 +194,7 @@ export async function enrichResultsWithMultiAi({
   if (db && fulfilledRequestIds.size > 0) {
     await markAiRequestsDone(db, fulfilledRequestIds, diagnostics);
   }
+  diagnostics.aiProviderDispatch = summarizeProviderRuntime(providerRuntime);
 
   return output;
 }
@@ -235,7 +246,7 @@ function configuredFreeProviders() {
     const defaultFallbacks = parseCsv(process.env.GITHUB_MODELS_FALLBACK_MODELS || DEFAULT_GITHUB_MODELS_FALLBACKS);
     const multiModelPool = parseCsv(process.env.GITHUB_MODELS_MODEL_POOL || [primaryModel, ...defaultFallbacks].join(","));
     const githubModels = process.env.GITHUB_MODELS_MULTI === "1"
-      ? uniqueStrings(multiModelPool).slice(0, Number(process.env.GITHUB_MODELS_MULTI_LIMIT || 3) || 3)
+      ? uniqueStrings(multiModelPool).slice(0, Number(process.env.GITHUB_MODELS_MULTI_LIMIT || 7) || 7)
       : [primaryModel];
     githubModels.forEach((model, index) => {
       providers.push({
@@ -259,7 +270,7 @@ function configuredFreeProviders() {
     providers.push({
       id: "gemini",
       label: "Gemini free tier",
-      model: process.env.GEMINI_MODEL || "gemini-1.5-flash",
+      model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
       apiKey: process.env.GEMINI_API_KEY,
       kind: "gemini",
       family: "gemini",
@@ -270,8 +281,8 @@ function configuredFreeProviders() {
     providers.push({
       id: "claude",
       label: "Claude / Anthropic",
-      model: process.env.ANTHROPIC_MODEL || process.env.CLAUDE_MODEL || "claude-3-5-haiku-latest",
-      fallbackModels: parseCsv(process.env.ANTHROPIC_FALLBACK_MODELS || process.env.CLAUDE_FALLBACK_MODELS || ""),
+      model: process.env.ANTHROPIC_MODEL || process.env.CLAUDE_MODEL || "claude-haiku-4-5",
+      fallbackModels: parseCsv(process.env.ANTHROPIC_FALLBACK_MODELS || process.env.CLAUDE_FALLBACK_MODELS || "claude-3-5-haiku-latest"),
       apiKey: anthropicApiKey,
       endpoint: process.env.ANTHROPIC_ENDPOINT || "https://api.anthropic.com/v1/messages",
       kind: "anthropic",
@@ -373,13 +384,14 @@ function normalizedAiMode() {
   return "automatique";
 }
 
-function providerCallPlanForMode(providers, mode, result) {
+function providerCallPlanForMode(providers, mode, result, event = null, aiRequest = null) {
   const diversified = diversifyProviders(providers);
   if (diversified.length <= 1) {
     return { candidates: diversified, desiredResponses: diversified.length };
   }
+  const priorityRequest = isPriorityAiRequest(aiRequest);
   if (mode === "economique") {
-    return { candidates: diversified, desiredResponses: 1 };
+    return { candidates: diversified, desiredResponses: priorityRequest ? Math.min(2, diversified.length) : 1 };
   }
   if (mode === "double") {
     return { candidates: diversified, desiredResponses: Math.min(2, diversified.length) };
@@ -390,8 +402,93 @@ function providerCallPlanForMode(providers, mode, result) {
   const fragile = result.confidenceScore < 63 || ["exotique", "mitige"].includes(String(result.category).toLowerCase());
   return {
     candidates: diversified,
-    desiredResponses: fragile ? Math.min(2, diversified.length) : 1,
+    desiredResponses: fragile || priorityRequest ? Math.min(2, diversified.length) : 1,
   };
+}
+
+function createProviderRuntimeState(providers) {
+  return new Map(providers.map((provider) => [provider.id, {
+    id: provider.id,
+    label: provider.label,
+    model: provider.model,
+    family: provider.family,
+    attempts: 0,
+    successes: 0,
+    errors: 0,
+    quotas: 0,
+    lastUsedAt: 0,
+    sportAttempts: new Map(),
+  }]));
+}
+
+function orderProvidersForDispatch(providers, runtimeState, result, event, aiRequest = null) {
+  const sport = textKey(result?.sport || event?.sport || "");
+  const priorityBias = isPriorityAiRequest(aiRequest) ? 0.75 : 1;
+  return [...providers].sort((left, right) => {
+    const leftScore = providerDispatchScore(left, runtimeState, sport, priorityBias);
+    const rightScore = providerDispatchScore(right, runtimeState, sport, priorityBias);
+    return leftScore - rightScore
+      || String(left.family || left.kind || "").localeCompare(String(right.family || right.kind || ""))
+      || String(left.id || "").localeCompare(String(right.id || ""));
+  });
+}
+
+function providerDispatchScore(provider, runtimeState, sport, priorityBias = 1) {
+  const state = runtimeState.get(provider.id);
+  if (!state) return 0;
+  const sportAttempts = Number(state.sportAttempts.get(sport) || 0);
+  const agePenalty = state.lastUsedAt ? Math.max(0, 10 - Math.min(10, (Date.now() - state.lastUsedAt) / 1000)) : 0;
+  return (state.attempts * 100 * priorityBias)
+    + (sportAttempts * 45)
+    + (state.successes * 12)
+    + (state.quotas * 250)
+    + (state.errors * 120)
+    + agePenalty;
+}
+
+function recordProviderAttempt(runtimeState, provider, result, event) {
+  const state = runtimeState.get(provider.id);
+  if (!state) return;
+  const sport = textKey(result?.sport || event?.sport || "");
+  state.attempts += 1;
+  state.lastUsedAt = Date.now();
+  state.sportAttempts.set(sport, Number(state.sportAttempts.get(sport) || 0) + 1);
+}
+
+function recordProviderSuccess(runtimeState, provider) {
+  const state = runtimeState.get(provider.id);
+  if (state) state.successes += 1;
+}
+
+function recordProviderFailure(runtimeState, provider, error) {
+  const state = runtimeState.get(provider.id);
+  if (!state) return;
+  if (isQuotaError(error)) state.quotas += 1;
+  else state.errors += 1;
+}
+
+function summarizeProviderRuntime(runtimeState) {
+  return Array.from(runtimeState.values()).map((state) => ({
+    id: state.id,
+    label: state.label,
+    model: state.model,
+    family: state.family,
+    attempts: state.attempts,
+    successes: state.successes,
+    errors: state.errors,
+    quotas: state.quotas,
+    sports: Object.fromEntries(state.sportAttempts.entries()),
+  }));
+}
+
+function isPriorityAiRequest(aiRequest) {
+  if (!aiRequest) return false;
+  const priority = Number(aiRequest.priority || 0);
+  const reason = String(aiRequest.reason || "").toLowerCase();
+  return priority >= 160
+    || reason.includes("competition")
+    || reason.includes("sport_priority")
+    || reason.includes("opened_event_priority");
 }
 
 function diversifyProviders(providers) {
@@ -1226,6 +1323,13 @@ function sleep(ms) {
 export const __testOnlyMultiAi = {
   modelFamilyFromGitHubModel,
   providerCallPlanForMode,
+  createProviderRuntimeState,
+  orderProvidersForDispatch,
+  recordProviderAttempt,
+  recordProviderSuccess,
+  recordProviderFailure,
+  summarizeProviderRuntime,
+  isPriorityAiRequest,
   diversifyProviders,
   isProviderDisablingError,
   configuredFreeProviders,
