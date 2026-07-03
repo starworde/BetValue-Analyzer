@@ -23,6 +23,9 @@ const failOnProviderError = process.env.AI_SMOKE_FAIL_ON_PROVIDER_ERROR === "1";
 const maxProviders = Number(process.env.AI_SMOKE_MAX_PROVIDERS || 0);
 const selectedProviders = maxProviders > 0 ? providers.slice(0, maxProviders) : providers;
 const reportPath = process.env.AI_SMOKE_REPORT_PATH || "ai-smoke-report.json";
+const delayMs = Number(process.env.AI_SMOKE_DELAY_MS || 1500);
+const quotaRetries = Number(process.env.AI_SMOKE_QUOTA_RETRIES || 1);
+const quotaRetryDelayMs = Number(process.env.AI_SMOKE_QUOTA_RETRY_DELAY_MS || 20000);
 
 const report = {
   status: "success",
@@ -50,12 +53,12 @@ if (selectedProviders.length === 0) {
   process.exit(0);
 }
 
-for (const provider of selectedProviders) {
-  for (const sport of sports) {
+for (const sport of sports) {
+  for (const provider of selectedProviders) {
     const dossier = sampleDossierForSport(sport);
     const started = Date.now();
     try {
-      const response = await __testOnlyMultiAi.callProvider(provider, dossier);
+      const response = await callProviderWithSmokeRetry(provider, dossier);
       const validation = validateAiResponse(response);
       report.results.push({
         status: validation.ok ? "ok" : "error",
@@ -77,7 +80,7 @@ for (const provider of selectedProviders) {
         error: compact(error?.message || String(error), 320),
       });
     }
-    await sleep(Number(process.env.AI_SMOKE_DELAY_MS || 250));
+    await sleep(delayMs);
   }
 }
 
@@ -142,6 +145,25 @@ function validateAiResponse(response) {
   ];
   const missing = required.filter((key) => !String(response?.[key] || "").trim());
   return { ok: missing.length === 0, missing };
+}
+
+async function callProviderWithSmokeRetry(provider, dossier) {
+  let lastError = null;
+  for (let attempt = 0; attempt <= quotaRetries; attempt += 1) {
+    try {
+      return await __testOnlyMultiAi.callProvider(provider, dossier);
+    } catch (error) {
+      lastError = error;
+      if (!isQuotaLikeError(error) || attempt >= quotaRetries) break;
+      await sleep(quotaRetryDelayMs * (attempt + 1));
+    }
+  }
+  throw lastError;
+}
+
+function isQuotaLikeError(error) {
+  return Number(error?.status || 0) === 429
+    || /quota|rate limit|too many requests|resource_exhausted/i.test(error?.message || "");
 }
 
 function sampleDossierForSport(sport) {
