@@ -69,6 +69,7 @@ function testGeminiAndClaudeBackendProvidersAreDetectedWithoutLeakingSecrets() {
   resetEnv({
     GITHUB_TOKEN: "gh-test-token",
     GEMINI_API_KEY: "gemini-secret-value",
+    GEMINI_ENABLED: "1",
     ANTHROPIC_API_KEY: "anthropic-secret-value",
     GROQ_API_KEY: "groq-secret-value",
   });

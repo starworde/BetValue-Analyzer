@@ -278,7 +278,7 @@ function configuredFreeProviders() {
       });
     });
   }
-  if (process.env.GEMINI_API_KEY && process.env.GEMINI_ENABLED !== "0") {
+  if (process.env.GEMINI_API_KEY && process.env.GEMINI_ENABLED === "1") {
     providers.push({
       id: "gemini",
       label: "Gemini free tier",

@@ -30,7 +30,7 @@ Variables GitHub optionnelles :
 
 Secrets IA gratuits optionnels en renfort :
 
-- `GEMINI_API_KEY`
+- `GEMINI_API_KEY` avec `GEMINI_ENABLED=1` seulement quand le quota Gemini est confirmé stable en smoke
 - `GROQ_API_KEY`
 - `MISTRAL_API_KEY` avec `MISTRAL_FREE_ENABLED=1` seulement si l’usage gratuit est confirmé
 - `OPENROUTER_API_KEY` avec `OPENROUTER_FREE_MODEL` contenant obligatoirement `:free`
@@ -41,7 +41,7 @@ Fournisseurs IA backend optionnels, jamais dans l'APK :
 - `ANTHROPIC_MODEL` ou `CLAUDE_MODEL` permet de choisir le modèle Claude, par défaut `claude-haiku-4-5`, avec `claude-3-5-haiku-latest` en secours.
 - `ANTHROPIC_FALLBACK_MODELS` ou `CLAUDE_FALLBACK_MODELS` peut contenir une liste séparée par virgules.
 - `ANTHROPIC_ENABLED=0` ou `CLAUDE_ENABLED=0` désactive Claude même si une clé existe.
-- `GEMINI_ENABLED=0` désactive Gemini même si une clé existe.
+- `GEMINI_ENABLED=1` active Gemini. Sans cette variable, Gemini reste prêt côté backend mais non appelé, pour éviter de casser les runs quand le quota Google gratuit est épuisé.
 
 Les clés OpenAI/Claude/Gemini ne sont jamais lues depuis Android. Elles doivent rester dans les secrets GitHub/Firebase/backend.
 Si `GEMINI_API_KEY`, `ANTHROPIC_API_KEY` ou `CLAUDE_API_KEY` ne sont pas configurés dans GitHub, ces fournisseurs restent disponibles dans l’architecture mais ne sont pas appelés en production.

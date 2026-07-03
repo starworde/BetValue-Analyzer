@@ -116,6 +116,7 @@ function filterProviders(allProviders) {
 function skippedConfiguredProviders() {
   const skipped = [];
   if (!process.env.GEMINI_API_KEY) skipped.push({ id: "gemini", reason: "GEMINI_API_KEY absent" });
+  else if (process.env.GEMINI_ENABLED !== "1") skipped.push({ id: "gemini", reason: "GEMINI_ENABLED different de 1" });
   if (!process.env.ANTHROPIC_API_KEY && !process.env.CLAUDE_API_KEY) skipped.push({ id: "claude", reason: "ANTHROPIC_API_KEY/CLAUDE_API_KEY absent" });
   if (!process.env.GROQ_API_KEY) skipped.push({ id: "groq", reason: "GROQ_API_KEY absent" });
   if (!process.env.MISTRAL_API_KEY) skipped.push({ id: "mistral-api", reason: "MISTRAL_API_KEY absent" });
