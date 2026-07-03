@@ -1,7 +1,9 @@
 import { writeFile } from "node:fs/promises";
 import { __testOnlyMultiAi } from "./multi-ai.mjs";
 
-const DEFAULT_SPORTS = [
+const QUICK_SPORTS = ["soccer", "rugby", "tennis", "racing"];
+
+const FULL_SPORTS = [
   "soccer",
   "rugby",
   "tennis",
@@ -17,20 +19,23 @@ const DEFAULT_SPORTS = [
 ];
 
 const startedAt = Date.now();
+const smokeScope = String(process.env.AI_SMOKE_SCOPE || "quick").toLowerCase();
 const providers = filterProviders(__testOnlyMultiAi.configuredFreeProviders());
-const sports = parseCsv(process.env.AI_SMOKE_SPORTS || DEFAULT_SPORTS.join(","));
+const defaultSports = smokeScope === "full" ? FULL_SPORTS : QUICK_SPORTS;
+const sports = parseCsv(process.env.AI_SMOKE_SPORTS || defaultSports.join(","));
 const failOnProviderError = process.env.AI_SMOKE_FAIL_ON_PROVIDER_ERROR === "1";
 const maxProviders = Number(process.env.AI_SMOKE_MAX_PROVIDERS || 0);
 const selectedProviders = maxProviders > 0 ? providers.slice(0, maxProviders) : providers;
 const reportPath = process.env.AI_SMOKE_REPORT_PATH || "ai-smoke-report.json";
 const delayMs = Number(process.env.AI_SMOKE_DELAY_MS || 1500);
-const quotaRetries = Number(process.env.AI_SMOKE_QUOTA_RETRIES || 1);
-const quotaRetryDelayMs = Number(process.env.AI_SMOKE_QUOTA_RETRY_DELAY_MS || 20000);
+const quotaRetries = Number(process.env.AI_SMOKE_QUOTA_RETRIES || 0);
+const quotaRetryDelayMs = Number(process.env.AI_SMOKE_QUOTA_RETRY_DELAY_MS || 10000);
 
 const report = {
   status: "success",
   generatedAt: new Date().toISOString(),
   durationMs: 0,
+  scope: smokeScope,
   sports,
   providerCount: selectedProviders.length,
   providersConfigured: providers.map(providerSummary),
@@ -171,98 +176,98 @@ function sampleDossierForSport(sport) {
   const base = {
     sport,
     date: new Date(Date.now() + 36 * 60 * 60 * 1000).toISOString(),
-    sourcesUtilisees: "Smoke test interne BetValue : dossier synthétique sans actualité réelle.",
-    donneesManquantes: ["news réelles", "compositions officielles", "météo confirmée"],
+    sourcesUtilisees: "Smoke test interne BetValue : dossier synthetique sans actualite reelle.",
+    donneesManquantes: ["news reelles", "compositions officielles", "meteo confirmee"],
     analyseLocaleInitiale: {
-      selection: "Scénario test",
+      selection: "Scenario test",
       marche: "Analyse sportive",
       confiance: 55,
       risque: "Moyen",
-      scenario: "à contextualiser",
+      scenario: "a contextualiser",
     },
   };
   const examples = {
     soccer: {
       competition: "Smoke Football",
-      evenement: "France — Suède",
-      participants: ["France", "Suède"],
-      statistiquesRecentes: "France : 6 matchs, 2.0 buts marqués/match, pressing haut. Suède : transitions rapides, 1.2 buts encaissés/match.",
-      blessures: "Aucune blessure confirmée dans le dossier test.",
-      compositions: "Compositions probables non confirmées.",
-      fatigueDeplacementCalendrier: "France sort d’un calendrier dense ; Suède plus fraîche.",
+      evenement: "France - Suede",
+      participants: ["France", "Suede"],
+      statistiquesRecentes: "France : 6 matchs, 2.0 buts marques/match, pressing haut. Suede : transitions rapides, 1.2 buts encaisses/match.",
+      blessures: "Aucune blessure confirmee dans le dossier test.",
+      compositions: "Compositions probables non confirmees.",
+      fatigueDeplacementCalendrier: "France sort d'un calendrier dense ; Suede plus fraiche.",
     },
     rugby: {
       competition: "Smoke Rugby",
-      evenement: "Toulouse — Montpellier",
+      evenement: "Toulouse - Montpellier",
       participants: ["Toulouse", "Montpellier"],
       statistiquesRecentes: "Toulouse fort en occupation et touche. Montpellier dangereux si discipline adverse faible.",
       surfaceTerrainCircuitParcours: "Terrain neutre dans le dossier test.",
     },
     tennis: {
       competition: "Smoke Tennis ATP",
-      evenement: "Joueur A — Joueur B",
+      evenement: "Joueur A - Joueur B",
       participants: ["Joueur A", "Joueur B"],
-      statistiquesRecentes: "Joueur A : 72% jeux de service tenus, fatigue récente. Joueur B : bon retour sur seconde balle.",
+      statistiquesRecentes: "Joueur A : 72% jeux de service tenus, fatigue recente. Joueur B : bon retour sur seconde balle.",
       surfaceTerrainCircuitParcours: "Gazon, conditions rapides.",
-      confrontationsDirectes: "Face-à-face : 1-1, aucun sur gazon.",
+      confrontationsDirectes: "Face-a-face : 1-1, aucun sur gazon.",
     },
     cycling: {
       competition: "Smoke Cyclisme",
-      evenement: "Étape vallonnée",
+      evenement: "Etape vallonnee",
       participants: ["Favori grimpeur", "Outsider puncheur"],
-      statistiquesRecentes: "Profil vallonné, arrivée en bosse, équipe du favori solide mais vent latéral possible.",
-      surfaceTerrainCircuitParcours: "Parcours vallonné, météo à confirmer.",
+      statistiquesRecentes: "Profil vallonne, arrivee en bosse, equipe du favori solide mais vent lateral possible.",
+      surfaceTerrainCircuitParcours: "Parcours vallonne, meteo a confirmer.",
     },
     racing: {
       competition: "Smoke F1",
       evenement: "Grand Prix test",
       participants: ["Pilote A", "Pilote B"],
-      statistiquesRecentes: "Pilote A rapide sur relais longs. Pilote B meilleur en qualifications, pneus à surveiller.",
-      surfaceTerrainCircuitParcours: "Circuit urbain, dépassements difficiles.",
+      statistiquesRecentes: "Pilote A rapide sur relais longs. Pilote B meilleur en qualifications, pneus a surveiller.",
+      surfaceTerrainCircuitParcours: "Circuit urbain, depassements difficiles.",
     },
     basketball: {
       competition: "Smoke Basket",
-      evenement: "Équipe A — Équipe B",
-      participants: ["Équipe A", "Équipe B"],
-      statistiquesRecentes: "Équipe A rythme élevé, forte au rebond. Équipe B adresse extérieure irrégulière.",
-      fatigueDeplacementCalendrier: "Équipe B en back-to-back.",
+      evenement: "Equipe A - Equipe B",
+      participants: ["Equipe A", "Equipe B"],
+      statistiquesRecentes: "Equipe A rythme eleve, forte au rebond. Equipe B adresse exterieure irreguliere.",
+      fatigueDeplacementCalendrier: "Equipe B en back-to-back.",
     },
     baseball: {
       competition: "Smoke Baseball",
-      evenement: "Team A — Team B",
+      evenement: "Team A - Team B",
       participants: ["Team A", "Team B"],
-      statistiquesRecentes: "Team A lanceur partant stable. Team B bullpen fatigué, attaque en hausse sur 7 jours.",
+      statistiquesRecentes: "Team A lanceur partant stable. Team B bullpen fatigue, attaque en hausse sur 7 jours.",
     },
     volleyball: {
       competition: "Smoke Volley",
-      evenement: "Équipe A — Équipe B",
-      participants: ["Équipe A", "Équipe B"],
-      statistiquesRecentes: "Équipe A forte au service. Équipe B réception fragile mais blocs efficaces.",
+      evenement: "Equipe A - Equipe B",
+      participants: ["Equipe A", "Equipe B"],
+      statistiquesRecentes: "Equipe A forte au service. Equipe B reception fragile mais blocs efficaces.",
     },
     handball: {
       competition: "Smoke Handball",
-      evenement: "Club A — Club B",
+      evenement: "Club A - Club B",
       participants: ["Club A", "Club B"],
-      statistiquesRecentes: "Club A gardien en forme, montée de balle rapide. Club B exclusions fréquentes.",
+      statistiquesRecentes: "Club A gardien en forme, montee de balle rapide. Club B exclusions frequentes.",
     },
     golf: {
       competition: "Smoke Golf",
       evenement: "Tournoi test",
       participants: ["Golfeur A", "Golfeur B"],
-      statistiquesRecentes: "Golfeur A putting solide. Golfeur B précis au drive, météo venteuse possible.",
-      surfaceTerrainCircuitParcours: "Parcours long, rough épais.",
+      statistiquesRecentes: "Golfeur A putting solide. Golfeur B precis au drive, meteo venteuse possible.",
+      surfaceTerrainCircuitParcours: "Parcours long, rough epais.",
     },
     mma: {
       competition: "Smoke MMA",
-      evenement: "Combattant A — Combattant B",
+      evenement: "Combattant A - Combattant B",
       participants: ["Combattant A", "Combattant B"],
       statistiquesRecentes: "Combattant A lutte dominante. Combattant B striking plus dangereux mais cardio incertain.",
     },
     football: {
       competition: "Smoke Football US",
-      evenement: "Team A — Team B",
+      evenement: "Team A - Team B",
       participants: ["Team A", "Team B"],
-      statistiquesRecentes: "Team A pass rush fort. Team B quarterback mobile, secondary diminuée.",
+      statistiquesRecentes: "Team A pass rush fort. Team B quarterback mobile, secondary diminuee.",
     },
   };
   return { ...base, ...(examples[sport] || examples.soccer) };

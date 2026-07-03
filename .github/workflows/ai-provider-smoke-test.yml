@@ -8,11 +8,19 @@ on:
         required: false
         default: ""
       sports:
-        description: "Sports à tester, séparés par virgule. Vide = panel complet."
+        description: "Sports a tester, separes par virgule. Vide = panel rapide."
         required: false
         default: ""
+      scope:
+        description: "Portee du test IA."
+        required: false
+        default: "quick"
+        type: choice
+        options:
+          - "quick"
+          - "full"
       fail_on_error:
-        description: "Fail le workflow si une IA répond en erreur/quota."
+        description: "Fail le workflow si une IA repond en erreur/quota."
         required: false
         default: "false"
         type: choice
@@ -27,7 +35,7 @@ permissions:
 jobs:
   ai-provider-smoke-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: ${{ inputs.scope == 'full' && 35 || 12 }}
 
     defaults:
       run:
@@ -76,9 +84,10 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           OPENROUTER_FREE_MODEL: ${{ vars.OPENROUTER_FREE_MODEL }}
           AI_HTTP_TIMEOUT_MS: "22000"
-          AI_SMOKE_DELAY_MS: "4500"
-          AI_SMOKE_QUOTA_RETRIES: "2"
-          AI_SMOKE_QUOTA_RETRY_DELAY_MS: "45000"
+          AI_SMOKE_DELAY_MS: ${{ inputs.scope == 'full' && '4500' || '1000' }}
+          AI_SMOKE_QUOTA_RETRIES: ${{ inputs.scope == 'full' && '2' || '0' }}
+          AI_SMOKE_QUOTA_RETRY_DELAY_MS: ${{ inputs.scope == 'full' && '45000' || '10000' }}
+          AI_SMOKE_SCOPE: ${{ inputs.scope }}
           AI_SMOKE_PROVIDERS: ${{ inputs.providers }}
           AI_SMOKE_SPORTS: ${{ inputs.sports }}
           AI_SMOKE_FAIL_ON_PROVIDER_ERROR: ${{ inputs.fail_on_error == 'true' && '1' || '0' }}
