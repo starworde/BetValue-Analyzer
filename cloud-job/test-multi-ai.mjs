@@ -48,12 +48,12 @@ function testDefaultGithubPoolUsesDifferentFamilies() {
   const providers = multiAiProviderDebugSnapshot();
   assert.deepEqual(
     providers.map((provider) => provider.model),
-    ["openai/gpt-4o-mini", "mistral-small-2503", "openai/gpt-4o"],
+    ["mistral-small-2503", "openai/gpt-4o", "openai/gpt-4o-mini"],
     "Le pool GitHub Models par défaut doit tenter GPT + Mistral + GPT secours.",
   );
   assert.deepEqual(
     providers.map((provider) => provider.family),
-    ["openai", "mistral", "openai"],
+    ["mistral", "openai", "openai"],
     "Les modèles GitHub doivent être classés par vraie famille IA.",
   );
 }

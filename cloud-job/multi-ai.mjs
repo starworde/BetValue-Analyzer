@@ -6,7 +6,8 @@ const AI_REQUEST_POOL_SIZE = Number.parseInt(process.env.AI_REQUEST_POOL_SIZE ??
 const AI_CACHE_ENABLED = process.env.AI_CACHE_ENABLED === "1";
 const AI_REQUIRE_REQUESTS = process.env.AI_REQUIRE_REQUESTS === "1";
 const MAX_AI_FIELD = 520;
-const DEFAULT_GITHUB_MODELS_FALLBACKS = "mistral-small-2503,openai/gpt-4o,openai/gpt-4.1-mini";
+const DEFAULT_GITHUB_MODELS_PRIMARY = "mistral-small-2503";
+const DEFAULT_GITHUB_MODELS_FALLBACKS = "openai/gpt-4o,openai/gpt-4o-mini,openai/gpt-4.1-mini";
 
 const REQUIRED_JSON_KEYS = [
   "titreAnalyse",
@@ -230,7 +231,7 @@ function allFreeProviderNames() {
 function configuredFreeProviders() {
   const providers = [];
   if (process.env.GITHUB_TOKEN && process.env.GITHUB_MODELS_ENABLED !== "0") {
-    const primaryModel = process.env.GITHUB_MODELS_MODEL || "openai/gpt-4o-mini";
+    const primaryModel = process.env.GITHUB_MODELS_MODEL || DEFAULT_GITHUB_MODELS_PRIMARY;
     const defaultFallbacks = parseCsv(process.env.GITHUB_MODELS_FALLBACK_MODELS || DEFAULT_GITHUB_MODELS_FALLBACKS);
     const multiModelPool = parseCsv(process.env.GITHUB_MODELS_MODEL_POOL || [primaryModel, ...defaultFallbacks].join(","));
     const githubModels = process.env.GITHUB_MODELS_MULTI === "1"
