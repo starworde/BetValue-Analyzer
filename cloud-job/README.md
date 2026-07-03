@@ -26,7 +26,7 @@ Variables GitHub optionnelles :
 
 - `GITHUB_MODELS_MODEL` : modèle GitHub Models principal à utiliser, par défaut `openai/gpt-4.1`.
 - `GITHUB_MODELS_MODEL_POOL` : liste de modèles GitHub Models à tenter en mode multi-IA.
-- `GITHUB_MODELS_FALLBACK_MODELS` : liste de secours utilisée si aucun pool n’est configuré. Par défaut, le job tente OpenAI, Mistral et Meta via GitHub Models, en évitant `openai/gpt-4o` si le smoke détecte trop de 429.
+- `GITHUB_MODELS_FALLBACK_MODELS` : liste de secours utilisée si aucun pool n’est configuré. Par défaut, le job tente `openai/gpt-4.1`, `mistral-ai/mistral-medium-2505`, `meta/llama-4-scout-17b-16e-instruct` et `mistral-ai/mistral-small-2503`, car ce pool a moins de 429 en smoke complet.
 
 Secrets IA gratuits optionnels en renfort :
 

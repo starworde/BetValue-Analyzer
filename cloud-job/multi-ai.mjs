@@ -7,7 +7,7 @@ const AI_CACHE_ENABLED = process.env.AI_CACHE_ENABLED === "1";
 const AI_REQUIRE_REQUESTS = process.env.AI_REQUIRE_REQUESTS === "1";
 const MAX_AI_FIELD = 520;
 const DEFAULT_GITHUB_MODELS_PRIMARY = "openai/gpt-4.1";
-const DEFAULT_GITHUB_MODELS_FALLBACKS = "mistral-ai/mistral-medium-2505,meta/llama-4-maverick-17b-128e-instruct-fp8,meta/llama-4-scout-17b-16e-instruct,mistral-ai/mistral-small-2503,openai/gpt-4o-mini,openai/gpt-4.1-mini";
+const DEFAULT_GITHUB_MODELS_FALLBACKS = "mistral-ai/mistral-medium-2505,meta/llama-4-scout-17b-16e-instruct,mistral-ai/mistral-small-2503";
 
 const REQUIRED_JSON_KEYS = [
   "titreAnalyse",
@@ -33,6 +33,18 @@ const REQUIRED_JSON_KEYS = [
   "modeleUtilise",
   "erreursOuLimites",
 ];
+
+const GEMINI_RESPONSE_SCHEMA = {
+  type: "OBJECT",
+  properties: Object.fromEntries(REQUIRED_JSON_KEYS.map((key) => [
+    key,
+    key === "confianceIA"
+      ? { type: "NUMBER" }
+      : { type: "STRING" },
+  ])),
+  required: REQUIRED_JSON_KEYS,
+  propertyOrdering: REQUIRED_JSON_KEYS,
+};
 
 const PAID_PROVIDERS_DISABLED = [
   "OpenAI API directe dans l'APK",
@@ -736,8 +748,9 @@ async function callGemini(provider, prompt) {
     contents: [{ role: "user", parts: [{ text: prompt }] }],
     generationConfig: {
       responseMimeType: "application/json",
+      responseSchema: GEMINI_RESPONSE_SCHEMA,
       temperature: 0.2,
-      maxOutputTokens: 950,
+      maxOutputTokens: 1400,
     },
   });
   return (json.candidates || [])

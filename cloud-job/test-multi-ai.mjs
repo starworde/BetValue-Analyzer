@@ -53,17 +53,14 @@ function testDefaultGithubPoolUsesDifferentFamilies() {
     [
       "openai/gpt-4.1",
       "mistral-ai/mistral-medium-2505",
-      "meta/llama-4-maverick-17b-128e-instruct-fp8",
       "meta/llama-4-scout-17b-16e-instruct",
       "mistral-ai/mistral-small-2503",
-      "openai/gpt-4o-mini",
-      "openai/gpt-4.1-mini",
     ],
     "Le pool GitHub Models par défaut doit tenter plusieurs modèles top tier gratuits/testables.",
   );
   assert.deepEqual(
     providers.map((provider) => provider.family),
-    ["openai", "mistral", "meta", "meta", "mistral", "openai", "openai"],
+    ["openai", "mistral", "meta", "mistral"],
     "Les modèles GitHub doivent être classés par vraie famille IA.",
   );
 }
