@@ -66,10 +66,16 @@ npm start
 Vérification syntaxe :
 
 ```bash
-node --check index.mjs
-node --check multi-ai.mjs
-node --check deploy-rules.mjs
+npm run check
 ```
+
+Smoke test réel des IA :
+
+```bash
+npm run smoke:ai
+```
+
+Le workflow GitHub manuel `BetValue AI provider smoke test` appelle les fournisseurs IA réellement disponibles et les teste sur un panel de sports (`soccer`, `rugby`, `tennis`, `cycling`, `racing`, `basketball`, `baseball`, `volleyball`, `handball`, `golf`, `mma`, `football`). Les fournisseurs sans secret backend, par exemple Gemini sans `GEMINI_API_KEY` ou Claude sans `ANTHROPIC_API_KEY`/`CLAUDE_API_KEY`, sont notés `SKIPPED` dans le rapport au lieu d’être faussement validés.
 
 Le workflow GitHub déploie `../firestore.rules` via `deploy-rules.mjs` et le Firebase Admin SDK, avec le même `FIREBASE_SERVICE_ACCOUNT_JSON` que le job cloud. Il ne dépend pas d’un `firebase login` interactif.
 

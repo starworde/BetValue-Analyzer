@@ -1,0 +1,90 @@
+name: BetValue AI provider smoke test
+
+on:
+  workflow_dispatch:
+    inputs:
+      providers:
+        description: "Filtre fournisseurs, ex: openai,mistral,gemini,claude. Vide = tous disponibles."
+        required: false
+        default: ""
+      sports:
+        description: "Sports à tester, séparés par virgule. Vide = panel complet."
+        required: false
+        default: ""
+      fail_on_error:
+        description: "Fail le workflow si une IA répond en erreur/quota."
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+
+permissions:
+  contents: read
+  models: read
+
+jobs:
+  ai-provider-smoke-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    defaults:
+      run:
+        working-directory: cloud-job
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install dependencies
+        run: npm install --omit=dev
+
+      - name: Validate smoke test code
+        run: npm run check
+
+      - name: Run AI provider smoke test
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_MODELS_ENABLED: "1"
+          GITHUB_MODELS_MULTI: "1"
+          GITHUB_MODELS_MULTI_LIMIT: "3"
+          GITHUB_MODELS_MODEL: ${{ vars.GITHUB_MODELS_MODEL }}
+          GITHUB_MODELS_MODEL_POOL: ${{ vars.GITHUB_MODELS_MODEL_POOL }}
+          GITHUB_MODELS_FALLBACK_MODELS: ${{ vars.GITHUB_MODELS_FALLBACK_MODELS }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_ENABLED: ${{ vars.GEMINI_ENABLED }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
+          ANTHROPIC_ENABLED: ${{ vars.ANTHROPIC_ENABLED }}
+          CLAUDE_ENABLED: ${{ vars.CLAUDE_ENABLED }}
+          ANTHROPIC_MODEL: ${{ vars.ANTHROPIC_MODEL }}
+          CLAUDE_MODEL: ${{ vars.CLAUDE_MODEL }}
+          ANTHROPIC_FALLBACK_MODELS: ${{ vars.ANTHROPIC_FALLBACK_MODELS }}
+          CLAUDE_FALLBACK_MODELS: ${{ vars.CLAUDE_FALLBACK_MODELS }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GROQ_MODEL: ${{ vars.GROQ_MODEL }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          MISTRAL_FREE_ENABLED: ${{ vars.MISTRAL_FREE_ENABLED }}
+          MISTRAL_MODEL: ${{ vars.MISTRAL_MODEL }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_FREE_MODEL: ${{ vars.OPENROUTER_FREE_MODEL }}
+          AI_HTTP_TIMEOUT_MS: "22000"
+          AI_SMOKE_PROVIDERS: ${{ inputs.providers }}
+          AI_SMOKE_SPORTS: ${{ inputs.sports }}
+          AI_SMOKE_FAIL_ON_PROVIDER_ERROR: ${{ inputs.fail_on_error == 'true' && '1' || '0' }}
+          AI_SMOKE_REPORT_PATH: "ai-smoke-report.json"
+        run: npm run smoke:ai
+
+      - name: Upload smoke report
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-smoke-report
+          path: cloud-job/ai-smoke-report.json
+          if-no-files-found: error

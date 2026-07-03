@@ -6,8 +6,9 @@
   "description": "GitHub Actions job that prepares BetValue Analyzer cloud results for Firestore.",
   "scripts": {
     "start": "node index.mjs",
-    "check": "node --check index.mjs && node --check multi-ai.mjs && node --check deploy-rules.mjs && node --check test-multi-ai.mjs && npm run test:multi-ai",
-    "test:multi-ai": "node test-multi-ai.mjs"
+    "check": "node --check index.mjs && node --check multi-ai.mjs && node --check deploy-rules.mjs && node --check test-multi-ai.mjs && node --check smoke-ai-providers.mjs && npm run test:multi-ai",
+    "test:multi-ai": "node test-multi-ai.mjs",
+    "smoke:ai": "node smoke-ai-providers.mjs"
   },
   "dependencies": {
     "firebase-admin": "^12.7.0"

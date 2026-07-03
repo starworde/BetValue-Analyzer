@@ -1227,4 +1227,6 @@ export const __testOnlyMultiAi = {
   providerCallPlanForMode,
   diversifyProviders,
   isProviderDisablingError,
+  configuredFreeProviders,
+  callProvider,
 };
