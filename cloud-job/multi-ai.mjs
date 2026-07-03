@@ -753,11 +753,17 @@ async function callGemini(provider, prompt) {
       maxOutputTokens: 1400,
     },
   });
-  return (json.candidates || [])
+  const content = (json.candidates || [])
     .flatMap((candidate) => candidate.content?.parts || [])
     .map((part) => part.text || "")
     .join("\n")
     .trim();
+  if (content) return content;
+  const finishReasons = (json.candidates || [])
+    .map((candidate) => candidate.finishReason)
+    .filter(Boolean)
+    .join(", ");
+  throw new Error(`Réponse Gemini vide${finishReasons ? ` (${finishReasons})` : ""}`);
 }
 
 async function callAnthropic(provider, prompt) {
@@ -1131,7 +1137,7 @@ function parseJsonObject(value) {
   } catch {
     const match = text.match(/\{[\s\S]*\}/);
     if (match) return JSON.parse(match[0]);
-    throw new Error("Réponse IA non JSON");
+    throw new Error(`Réponse IA non JSON: ${compactAiText(text || "<vide>", 220)}`);
   }
 }
 

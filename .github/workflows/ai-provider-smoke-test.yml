@@ -76,6 +76,9 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           OPENROUTER_FREE_MODEL: ${{ vars.OPENROUTER_FREE_MODEL }}
           AI_HTTP_TIMEOUT_MS: "22000"
+          AI_SMOKE_DELAY_MS: "4500"
+          AI_SMOKE_QUOTA_RETRIES: "2"
+          AI_SMOKE_QUOTA_RETRY_DELAY_MS: "45000"
           AI_SMOKE_PROVIDERS: ${{ inputs.providers }}
           AI_SMOKE_SPORTS: ${{ inputs.sports }}
           AI_SMOKE_FAIL_ON_PROVIDER_ERROR: ${{ inputs.fail_on_error == 'true' && '1' || '0' }}
