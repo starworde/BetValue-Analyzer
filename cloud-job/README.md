@@ -24,9 +24,9 @@ Le workflow active GitHub Models via le `GITHUB_TOKEN` fourni par GitHub Actions
 
 Variables GitHub optionnelles :
 
-- `GITHUB_MODELS_MODEL` : modèle GitHub Models principal à utiliser, par défaut `openai/gpt-4o-mini`.
+- `GITHUB_MODELS_MODEL` : modèle GitHub Models principal à utiliser, par défaut `openai/gpt-4.1`.
 - `GITHUB_MODELS_MODEL_POOL` : liste de modèles GitHub Models à tenter en mode multi-IA.
-- `GITHUB_MODELS_FALLBACK_MODELS` : liste de secours utilisée si aucun pool n’est configuré. Par défaut, le job tente `mistral-small-2503` puis des modèles OpenAI GitHub Models, afin de ne pas rester limité à une seule famille IA quand Mistral est disponible.
+- `GITHUB_MODELS_FALLBACK_MODELS` : liste de secours utilisée si aucun pool n’est configuré. Par défaut, le job tente OpenAI, Mistral et Meta via GitHub Models, en évitant `openai/gpt-4o` si le smoke détecte trop de 429.
 
 Secrets IA gratuits optionnels en renfort :
 
@@ -38,7 +38,7 @@ Secrets IA gratuits optionnels en renfort :
 Fournisseurs IA backend optionnels, jamais dans l'APK :
 
 - `ANTHROPIC_API_KEY` ou `CLAUDE_API_KEY` active Claude via l'API Messages Anthropic côté GitHub Actions.
-- `ANTHROPIC_MODEL` ou `CLAUDE_MODEL` permet de choisir le modèle Claude, par défaut `claude-3-5-haiku-latest`.
+- `ANTHROPIC_MODEL` ou `CLAUDE_MODEL` permet de choisir le modèle Claude, par défaut `claude-haiku-4-5`, avec `claude-3-5-haiku-latest` en secours.
 - `ANTHROPIC_FALLBACK_MODELS` ou `CLAUDE_FALLBACK_MODELS` peut contenir une liste séparée par virgules.
 - `ANTHROPIC_ENABLED=0` ou `CLAUDE_ENABLED=0` désactive Claude même si une clé existe.
 - `GEMINI_ENABLED=0` désactive Gemini même si une clé existe.
