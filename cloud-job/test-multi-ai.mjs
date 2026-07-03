@@ -51,8 +51,8 @@ function testDefaultGithubPoolUsesDifferentFamilies() {
   assert.deepEqual(
     providers.map((provider) => provider.model),
     [
-      "openai/gpt-4.1",
       "mistral-ai/mistral-medium-2505",
+      "openai/gpt-4.1",
       "meta/llama-4-scout-17b-16e-instruct",
       "mistral-ai/mistral-small-2503",
     ],
@@ -60,7 +60,7 @@ function testDefaultGithubPoolUsesDifferentFamilies() {
   );
   assert.deepEqual(
     providers.map((provider) => provider.family),
-    ["openai", "mistral", "meta", "mistral"],
+    ["mistral", "openai", "meta", "mistral"],
     "Les modèles GitHub doivent être classés par vraie famille IA.",
   );
 }

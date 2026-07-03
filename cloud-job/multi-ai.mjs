@@ -6,8 +6,8 @@ const AI_REQUEST_POOL_SIZE = Number.parseInt(process.env.AI_REQUEST_POOL_SIZE ??
 const AI_CACHE_ENABLED = process.env.AI_CACHE_ENABLED === "1";
 const AI_REQUIRE_REQUESTS = process.env.AI_REQUIRE_REQUESTS === "1";
 const MAX_AI_FIELD = 520;
-const DEFAULT_GITHUB_MODELS_PRIMARY = "openai/gpt-4.1";
-const DEFAULT_GITHUB_MODELS_FALLBACKS = "mistral-ai/mistral-medium-2505,meta/llama-4-scout-17b-16e-instruct,mistral-ai/mistral-small-2503";
+const DEFAULT_GITHUB_MODELS_PRIMARY = "mistral-ai/mistral-medium-2505";
+const DEFAULT_GITHUB_MODELS_FALLBACKS = "openai/gpt-4.1,meta/llama-4-scout-17b-16e-instruct,mistral-ai/mistral-small-2503";
 
 const REQUIRED_JSON_KEYS = [
   "titreAnalyse",
