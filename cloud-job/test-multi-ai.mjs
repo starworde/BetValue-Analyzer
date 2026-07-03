@@ -12,7 +12,8 @@ try {
   testGeminiAndClaudeBackendProvidersAreDetectedWithoutLeakingSecrets();
   testDoubleModePrioritizesDifferentAiFamilies();
   testPriorityRequestsUseRedundantAiEvenInEconomicMode();
-  testDispatchRotatesProvidersInsteadOfHammeringFirstModel();
+  testCompetitionFavoritesArePrioritizedBeforeSportFavoritesAndRest();
+  testDispatchSplitsSportsByAssignedAiAndKeepsFallbacks();
   testProviderDisablingErrors();
   console.log("[test-multi-ai] OK");
 } finally {
@@ -131,33 +132,117 @@ function testPriorityRequestsUseRedundantAiEvenInEconomicMode() {
   );
 }
 
-function testDispatchRotatesProvidersInsteadOfHammeringFirstModel() {
+function testCompetitionFavoritesArePrioritizedBeforeSportFavoritesAndRest() {
+  assert.equal(
+    __testOnlyMultiAi.targetPriorityTier({ priority: 120, reason: "competition_priority" }),
+    0,
+    "Une competition favorite doit rester au premier niveau meme avec une priorite numerique moyenne.",
+  );
+  assert.equal(
+    __testOnlyMultiAi.targetPriorityTier({ priority: 200, reason: "sport_priority" }),
+    1,
+    "Un sport favori doit rester derriere les competitions favorites.",
+  );
+  assert.equal(
+    __testOnlyMultiAi.targetPriorityTier({ priority: 40, reason: "background_refresh" }),
+    2,
+    "Le reste doit passer apres les favoris.",
+  );
+
+  const now = Date.now() + 60 * 60 * 1000;
+  const results = [
+    { eventId: "rest", eventDate: now, sport: "baseball", confidenceScore: 72, category: "safe" },
+    { eventId: "sport-fav", eventDate: now, sport: "rugby", confidenceScore: 72, category: "safe" },
+    { eventId: "competition-fav", eventDate: now, sport: "tennis", competition: "Wimbledon", confidenceScore: 72, category: "safe" },
+  ];
+  const selected = __testOnlyMultiAi.selectAiTargets(
+    results,
+    new Map(),
+    "automatique",
+    true,
+    3,
+    [
+      { eventId: "sport-fav", priority: 200, reason: "sport_priority", sport: "rugby" },
+      { eventId: "competition-fav", priority: 120, reason: "competition_priority", sport: "tennis", competition: "Wimbledon" },
+    ],
+  );
+  assert.deepEqual(
+    selected.map((result) => result.eventId),
+    ["competition-fav", "sport-fav", "rest"],
+    "La file IA doit traiter competition favorite, puis sport favori, puis le reste.",
+  );
+}
+
+function testDispatchSplitsSportsByAssignedAiAndKeepsFallbacks() {
   const providers = [
     { id: "mistral", label: "Mistral", family: "mistral" },
     { id: "gpt", label: "GPT", family: "openai" },
     { id: "llama", label: "Llama", family: "meta" },
+    { id: "cohere", label: "Cohere", family: "cohere" },
   ];
   const runtime = __testOnlyMultiAi.createProviderRuntimeState(providers);
-  const firstOrder = __testOnlyMultiAi.orderProvidersForDispatch(
+
+  const targets = [
+    {
+      result: { sport: "football", competition: "Coupe du monde FIFA", eventName: "France - Suede" },
+      request: { priority: 120, reason: "competition_priority", competition: "Coupe du monde FIFA", sport: "football" },
+    },
+    {
+      result: { sport: "tennis", competition: "ATP · Wimbledon · Men's Singles", eventName: "Player A - Player B" },
+      request: { priority: 120, reason: "competition_priority", competition: "Wimbledon", sport: "tennis" },
+    },
+    {
+      result: { sport: "rugby", competition: "Top 14", eventName: "Toulouse - Montpellier" },
+      request: { priority: 190, reason: "sport_priority", competition: "Top 14", sport: "rugby" },
+    },
+    {
+      result: { sport: "racing", competition: "Formula 1 · British Grand Prix", eventName: "British Grand Prix - Race" },
+      request: { priority: 120, reason: "competition_priority", competition: "British Grand Prix", sport: "racing" },
+    },
+  ];
+
+  const firstProviderIds = targets.map((target) => __testOnlyMultiAi.orderProvidersForDispatch(
     providers,
     runtime,
-    { sport: "football" },
+    target.result,
     null,
-    null,
+    target.request,
+  )[0].id);
+  assert(
+    new Set(firstProviderIds).size >= 2,
+    "Les sports/competitions doivent etre repartis sur plusieurs IA au lieu de tout envoyer au meme modele.",
   );
-  __testOnlyMultiAi.recordProviderAttempt(runtime, firstOrder[0], { sport: "football" }, null);
-  __testOnlyMultiAi.recordProviderSuccess(runtime, firstOrder[0]);
-  const secondOrder = __testOnlyMultiAi.orderProvidersForDispatch(
+
+  const footballOrder = __testOnlyMultiAi.orderProvidersForDispatch(
     providers,
     runtime,
-    { sport: "football" },
+    targets[0].result,
     null,
+    targets[0].request,
+  );
+  const assignment = __testOnlyMultiAi.providerAssignmentForTarget(
+    providers,
+    targets[0].result,
     null,
+    targets[0].request,
+  );
+  assert.equal(
+    footballOrder[0].id,
+    assignment.preferredProviderId,
+    "Le premier fournisseur doit etre le proprietaire IA stable de cette competition.",
+  );
+
+  const fallbackOrder = __testOnlyMultiAi.orderProvidersForDispatch(
+    providers.filter((provider) => provider.id !== footballOrder[0].id),
+    runtime,
+    targets[0].result,
+    null,
+    targets[0].request,
   );
   assert.notEqual(
-    secondOrder[0].id,
-    firstOrder[0].id,
-    "Le dispatch doit tourner vers une autre IA apres un appel reussi.",
+    fallbackOrder[0].id,
+    footballOrder[0].id,
+    "Si l'IA proprietaire est indisponible, le dispatch doit basculer vers une autre IA.",
   );
 }
 

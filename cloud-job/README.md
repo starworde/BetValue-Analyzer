@@ -56,6 +56,16 @@ Si `GEMINI_API_KEY`, `ANTHROPIC_API_KEY` ou `CLAUDE_API_KEY` ne sont pas configu
 
 En mode `double`, le job vise deux réponses IA issues de familles différentes quand elles sont disponibles : par exemple OpenAI GitHub Models + Mistral GitHub Models, ou GitHub Models + Gemini/Claude/Groq si les secrets backend existent. Si un fournisseur échoue, renvoie une 401/403/429 ou atteint son quota, le job tente le fournisseur suivant au lieu de bloquer toute l'analyse.
 
+## Routage IA par favoris
+
+Le job ne traite plus les analyses comme une file unique. Il classe d'abord les demandes IA en trois niveaux :
+
+1. competition favorite : ligue/coupe en football ou rugby, tournoi/Grand Chelem en tennis, GP/course en F1/NASCAR, course/etape en cyclisme ;
+2. sport favori ;
+3. reste du calendrier.
+
+Chaque niveau recoit une attribution IA stable : une competition ou un sport a un fournisseur IA preferentiel, puis des fournisseurs de secours. Si le fournisseur preferentiel renvoie une erreur, un quota, une 401/403/429 ou devient indisponible, le job bascule automatiquement vers l'IA suivante au lieu de bloquer l'analyse. Les logs affichent `route=... -> fournisseur` pour auditer cette repartition dans GitHub Actions.
+
 ## Commandes
 
 ```bash

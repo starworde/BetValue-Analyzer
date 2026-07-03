@@ -128,8 +128,15 @@ export async function enrichResultsWithMultiAi({
     }
     targetIndex += 1;
 
+    const activeProviders = providers.filter((provider) => !disabledProviderIds.has(provider.id));
+    const dispatchAssignment = providerAssignmentForTarget(
+      activeProviders,
+      result,
+      event,
+      aiRequest,
+    );
     const availableProviders = orderProvidersForDispatch(
-      providers.filter((provider) => !disabledProviderIds.has(provider.id)),
+      activeProviders,
       providerRuntime,
       result,
       event,
@@ -144,6 +151,7 @@ export async function enrichResultsWithMultiAi({
 
     const dossier = buildAiInputDossier(result, event, newsContext);
     const providerPlan = providerCallPlanForMode(availableProviders, diagnostics.aiMode, result, event, aiRequest);
+    console.log(`[ai] ${targetIndex}/${targets.length} route=${dispatchAssignment.tierLabel}/${dispatchAssignment.axisLabel} -> ${availableProviders[0]?.label || "aucune"}`);
     console.log(`[ai] ${targetIndex}/${targets.length} objectif=${providerPlan.desiredResponses} IA, candidats=${providerPlan.candidates.map((provider) => provider.label).join(" + ")} · ${compactAiText(result.eventName || result.eventId, 90)}`);
     const startedAt = Date.now();
     const calledProviders = [];
@@ -436,27 +444,187 @@ function createProviderRuntimeState(providers) {
 
 function orderProvidersForDispatch(providers, runtimeState, result, event, aiRequest = null) {
   const sport = textKey(result?.sport || event?.sport || "");
+  const assignment = providerAssignmentForTarget(providers, result, event, aiRequest);
   const priorityBias = isPriorityAiRequest(aiRequest) ? 0.75 : 1;
   return [...providers].sort((left, right) => {
-    const leftScore = providerDispatchScore(left, runtimeState, sport, priorityBias);
-    const rightScore = providerDispatchScore(right, runtimeState, sport, priorityBias);
+    const leftScore = providerDispatchScore(left, runtimeState, sport, priorityBias, assignment);
+    const rightScore = providerDispatchScore(right, runtimeState, sport, priorityBias, assignment);
     return leftScore - rightScore
       || String(left.family || left.kind || "").localeCompare(String(right.family || right.kind || ""))
       || String(left.id || "").localeCompare(String(right.id || ""));
   });
 }
 
-function providerDispatchScore(provider, runtimeState, sport, priorityBias = 1) {
+function providerDispatchScore(provider, runtimeState, sport, priorityBias = 1, assignment = null) {
   const state = runtimeState.get(provider.id);
   if (!state) return 0;
   const sportAttempts = Number(state.sportAttempts.get(sport) || 0);
   const agePenalty = state.lastUsedAt ? Math.max(0, 10 - Math.min(10, (Date.now() - state.lastUsedAt) / 1000)) : 0;
-  return (state.attempts * 100 * priorityBias)
-    + (sportAttempts * 45)
+  const assignmentRank = Number(assignment?.rankById?.get(provider.id) ?? 0);
+  const assignmentPenalty = assignmentRank * providerAssignmentPenalty(assignment?.tier);
+  return assignmentPenalty
+    + (state.attempts * providerLoadPenalty(assignment?.tier) * priorityBias)
+    + (sportAttempts * 70)
     + (state.successes * 12)
-    + (state.quotas * 250)
-    + (state.errors * 120)
+    + (state.quotas * 10000)
+    + (state.errors * 650)
     + agePenalty;
+}
+
+function providerAssignmentPenalty(tier) {
+  if (tier === 0) return 720;
+  if (tier === 1) return 560;
+  return 380;
+}
+
+function providerLoadPenalty(tier) {
+  if (tier === 0) return 42;
+  if (tier === 1) return 58;
+  return 82;
+}
+
+function providerAssignmentForTarget(providers, result, event, aiRequest = null) {
+  const tier = targetPriorityTier(aiRequest);
+  const axis = assignmentAxisForTarget(result, event, aiRequest, tier);
+  const seed = `${tier}|${axis.key}`;
+  const preferredIndex = providers.length > 0 ? stableHash(seed) % providers.length : 0;
+  const rankById = new Map();
+  providers.forEach((provider, index) => {
+    const rank = providers.length > 0 ? (index - preferredIndex + providers.length) % providers.length : 0;
+    rankById.set(provider.id, rank);
+  });
+  return {
+    tier,
+    tierLabel: priorityTierLabel(tier),
+    axisType: axis.type,
+    axisLabel: axis.label,
+    key: axis.key,
+    preferredProviderId: providers[preferredIndex]?.id || null,
+    preferredProviderLabel: providers[preferredIndex]?.label || null,
+    rankById,
+  };
+}
+
+function assignmentAxisForTarget(result, event, aiRequest, tier) {
+  const sport = sportAssignmentKey(result?.sport || event?.sport || aiRequest?.sport);
+  if (tier === 0) {
+    const competition = competitionAssignmentForSport(result, event, aiRequest);
+    return {
+      type: competition.type,
+      label: `${competition.type} ${competition.label}`.trim(),
+      key: `${sport}|${competition.key}`,
+    };
+  }
+  if (tier === 1) {
+    return {
+      type: "sport",
+      label: sport || "sport",
+      key: sport || "sport inconnu",
+    };
+  }
+  const eventKey = textKey(result?.eventId || event?.eventId || result?.eventName || event?.eventName || "");
+  return {
+    type: "reste",
+    label: sport || "reste",
+    key: `${sport || "sport inconnu"}|${eventKey || "evenement inconnu"}`,
+  };
+}
+
+function competitionAssignmentForSport(result, event, aiRequest) {
+  const sport = sportAssignmentKey(result?.sport || event?.sport || aiRequest?.sport);
+  const competition = firstText(
+    aiRequest?.competition,
+    result?.competition,
+    event?.competition,
+    event?.league,
+    result?.league,
+    event?.tournament,
+    result?.tournament,
+  );
+  const eventName = firstText(aiRequest?.eventName, result?.eventName, event?.eventName);
+  const combined = [sport, competition, eventName].filter(Boolean).join(" ");
+  const label = sportSpecificCompetitionLabel(sport, competition, eventName);
+  const type = sportSpecificCompetitionType(sport, combined);
+  const key = textKey(label || competition || eventName || result?.eventId || event?.eventId || "competition inconnue");
+  return {
+    type,
+    label: label || "competition inconnue",
+    key,
+  };
+}
+
+function sportSpecificCompetitionType(sport, combinedText) {
+  const text = textKey(`${sport} ${combinedText}`);
+  if (/formula|f1|grand prix|nascar|racing|moto gp|motogp/.test(text)) return "GP/course";
+  if (/tennis|atp|wta|grand slam|wimbledon|roland garros|us open|australian open/.test(text)) return "tournoi";
+  if (/cycling|cyclisme|uci|tour|giro|vuelta|classic|classique/.test(text)) return "course";
+  if (/rugby|football|soccer|basket|volley|handball|baseball|american football/.test(text)) return "competition";
+  return "competition";
+}
+
+function sportSpecificCompetitionLabel(sport, competition, eventName) {
+  const raw = firstText(competition, eventName);
+  if (!raw) return "";
+  const chunks = String(raw)
+    .split(/[·•|]/)
+    .map((chunk) => chunk.trim())
+    .filter(Boolean);
+  const text = `${sport} ${raw}`;
+  if (/formula|f1|grand prix|nascar|racing|moto gp|motogp/i.test(text)) {
+    return firstMatchingChunk(chunks, /(grand prix|gp|nascar|formula|f1|prix|race|qualifying|sprint)/i) || raw;
+  }
+  if (/tennis|atp|wta|grand slam|wimbledon|roland garros|us open|australian open/i.test(text)) {
+    return firstMatchingChunk(chunks, /(wimbledon|roland garros|us open|australian open|atp|wta|masters|open|championship|slam)/i) || raw;
+  }
+  if (/cycling|cyclisme|uci|tour|giro|vuelta/i.test(text)) {
+    return firstMatchingChunk(chunks, /(tour|giro|vuelta|uci|classic|classique|championship|race|etape|stage)/i) || raw;
+  }
+  return raw;
+}
+
+function firstMatchingChunk(chunks, pattern) {
+  return chunks.find((chunk) => pattern.test(chunk)) || "";
+}
+
+function firstText(...values) {
+  return values.find((value) => String(value || "").trim()) || "";
+}
+
+function sportAssignmentKey(value) {
+  const key = textKey(value);
+  if (["football", "soccer"].includes(key)) return "football";
+  if (["formula 1", "formule 1", "f1", "racing", "motorsport"].includes(key)) return "racing";
+  if (["cycling", "cyclisme"].includes(key)) return "cycling";
+  if (["rugby a xv", "rugby xv"].includes(key)) return "rugby";
+  return key;
+}
+
+function targetPriorityTier(aiRequest = null) {
+  if (!aiRequest) return 2;
+  const priority = Number(aiRequest.priority || 0);
+  const reason = String(aiRequest.reason || "").toLowerCase();
+  if (reason.includes("competition")) return 0;
+  if (reason.includes("opened_event_priority")) return 0;
+  if (reason.includes("sport_priority")) return 1;
+  if (priority >= 180) return 0;
+  if (priority >= 140) return 1;
+  return 2;
+}
+
+function priorityTierLabel(tier) {
+  if (tier === 0) return "competition favorite";
+  if (tier === 1) return "sport favori";
+  return "reste";
+}
+
+function stableHash(value) {
+  const text = String(value || "");
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619) >>> 0;
+  }
+  return hash >>> 0;
 }
 
 function recordProviderAttempt(runtimeState, provider, result, event) {
@@ -496,12 +664,7 @@ function summarizeProviderRuntime(runtimeState) {
 
 function isPriorityAiRequest(aiRequest) {
   if (!aiRequest) return false;
-  const priority = Number(aiRequest.priority || 0);
-  const reason = String(aiRequest.reason || "").toLowerCase();
-  return priority >= 160
-    || reason.includes("competition")
-    || reason.includes("sport_priority")
-    || reason.includes("opened_event_priority");
+  return targetPriorityTier(aiRequest) <= 1;
 }
 
 function diversifyProviders(providers) {
@@ -539,9 +702,10 @@ function aiPriorityScore(result, event, mode, aiRequest = null) {
   let score = 0;
   if (aiRequest) {
     const requestPriority = Number(aiRequest.priority || 0);
-    score += 160 + Math.min(120, Math.max(0, requestPriority));
-    if (String(aiRequest.reason || "").includes("competition")) score += 30;
-    if (String(aiRequest.reason || "") === "opened_event_priority" || requestPriority >= 180) score += 70;
+    const tier = targetPriorityTier(aiRequest);
+    score += tier === 0 ? 520 : tier === 1 ? 360 : 160;
+    score += Math.min(120, Math.max(0, requestPriority));
+    if (String(aiRequest.reason || "") === "opened_event_priority") score += 70;
   }
   const startsInHours = (result.eventDate - Date.now()) / (60 * 60 * 1000);
   if (startsInHours >= -2 && startsInHours <= 72) score += 35;
@@ -1349,6 +1513,11 @@ export const __testOnlyMultiAi = {
   recordProviderSuccess,
   recordProviderFailure,
   summarizeProviderRuntime,
+  providerAssignmentForTarget,
+  targetPriorityTier,
+  assignmentAxisForTarget,
+  selectAiTargets,
+  aiPriorityScore,
   isPriorityAiRequest,
   diversifyProviders,
   isProviderDisablingError,
