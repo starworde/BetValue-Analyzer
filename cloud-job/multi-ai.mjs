@@ -46,9 +46,14 @@ export function multiAiProviderDiagnostics() {
   return {
     configured: allFreeProviderNames(),
     freeEnabled: providers.map((provider) => provider.label),
+    freeEnabledDetails: providers.map(safeProviderDiagnostic),
     paidDisabled: PAID_PROVIDERS_DISABLED,
     mode: normalizedAiMode(),
   };
+}
+
+export function multiAiProviderDebugSnapshot() {
+  return configuredFreeProviders().map(safeProviderDiagnostic);
 }
 
 export async function enrichResultsWithMultiAi({
@@ -314,6 +319,16 @@ function configuredFreeProviders() {
     });
   }
   return providers;
+}
+
+function safeProviderDiagnostic(provider) {
+  return {
+    id: provider.id,
+    label: provider.label,
+    model: provider.model,
+    kind: provider.kind,
+    family: provider.family,
+  };
 }
 
 function parseCsv(value) {
@@ -1206,3 +1221,10 @@ function isQuotaError(error) {
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+export const __testOnlyMultiAi = {
+  modelFamilyFromGitHubModel,
+  providerCallPlanForMode,
+  diversifyProviders,
+  isProviderDisablingError,
+};
