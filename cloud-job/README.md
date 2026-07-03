@@ -24,7 +24,9 @@ Le workflow active GitHub Models via le `GITHUB_TOKEN` fourni par GitHub Actions
 
 Variables GitHub optionnelles :
 
-- `GITHUB_MODELS_MODEL` : modèle GitHub Models à utiliser, par défaut `openai/gpt-4o`.
+- `GITHUB_MODELS_MODEL` : modèle GitHub Models principal à utiliser, par défaut `openai/gpt-4o-mini`.
+- `GITHUB_MODELS_MODEL_POOL` : liste de modèles GitHub Models à tenter en mode multi-IA.
+- `GITHUB_MODELS_FALLBACK_MODELS` : liste de secours utilisée si aucun pool n’est configuré. Par défaut, le job tente `mistral-small-2503` puis des modèles OpenAI GitHub Models, afin de ne pas rester limité à une seule famille IA quand Mistral est disponible.
 
 Secrets IA gratuits optionnels en renfort :
 
@@ -42,6 +44,7 @@ Fournisseurs IA backend optionnels, jamais dans l'APK :
 - `GEMINI_ENABLED=0` désactive Gemini même si une clé existe.
 
 Les clés OpenAI/Claude/Gemini ne sont jamais lues depuis Android. Elles doivent rester dans les secrets GitHub/Firebase/backend.
+Si `GEMINI_API_KEY`, `ANTHROPIC_API_KEY` ou `CLAUDE_API_KEY` ne sont pas configurés dans GitHub, ces fournisseurs restent disponibles dans l’architecture mais ne sont pas appelés en production.
 
 ## Variables utiles
 
@@ -51,7 +54,7 @@ Les clés OpenAI/Claude/Gemini ne sont jamais lues depuis Android. Elles doivent
 - `EVENT_LOOKAHEAD_DAYS` : horizon calendrier.
 - `MAX_RESULTS_TO_WRITE` : limite d’écriture Firestore par run.
 
-En mode `double`, le job vise deux réponses IA issues de familles différentes quand elles sont disponibles. Si GitHub Models, Gemini ou Claude échoue, renvoie une 401/403/429 ou atteint son quota, le job tente le fournisseur suivant au lieu de bloquer toute l'analyse.
+En mode `double`, le job vise deux réponses IA issues de familles différentes quand elles sont disponibles : par exemple OpenAI GitHub Models + Mistral GitHub Models, ou GitHub Models + Gemini/Claude/Groq si les secrets backend existent. Si un fournisseur échoue, renvoie une 401/403/429 ou atteint son quota, le job tente le fournisseur suivant au lieu de bloquer toute l'analyse.
 
 ## Commandes
 

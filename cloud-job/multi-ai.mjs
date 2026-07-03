@@ -6,6 +6,7 @@ const AI_REQUEST_POOL_SIZE = Number.parseInt(process.env.AI_REQUEST_POOL_SIZE ??
 const AI_CACHE_ENABLED = process.env.AI_CACHE_ENABLED === "1";
 const AI_REQUIRE_REQUESTS = process.env.AI_REQUIRE_REQUESTS === "1";
 const MAX_AI_FIELD = 520;
+const DEFAULT_GITHUB_MODELS_FALLBACKS = "mistral-small-2503,openai/gpt-4o,openai/gpt-4.1-mini";
 
 const REQUIRED_JSON_KEYS = [
   "titreAnalyse",
@@ -225,7 +226,7 @@ function configuredFreeProviders() {
   const providers = [];
   if (process.env.GITHUB_TOKEN && process.env.GITHUB_MODELS_ENABLED !== "0") {
     const primaryModel = process.env.GITHUB_MODELS_MODEL || "openai/gpt-4o-mini";
-    const defaultFallbacks = parseCsv(process.env.GITHUB_MODELS_FALLBACK_MODELS || "openai/gpt-4o-mini,openai/gpt-4o,openai/gpt-4.1-mini");
+    const defaultFallbacks = parseCsv(process.env.GITHUB_MODELS_FALLBACK_MODELS || DEFAULT_GITHUB_MODELS_FALLBACKS);
     const multiModelPool = parseCsv(process.env.GITHUB_MODELS_MODEL_POOL || [primaryModel, ...defaultFallbacks].join(","));
     const githubModels = process.env.GITHUB_MODELS_MULTI === "1"
       ? uniqueStrings(multiModelPool).slice(0, Number(process.env.GITHUB_MODELS_MULTI_LIMIT || 3) || 3)
@@ -239,7 +240,7 @@ function configuredFreeProviders() {
         apiKey: process.env.GITHUB_TOKEN,
         endpoint: "https://models.github.ai/inference/chat/completions",
         kind: "github-models",
-        family: "github-models",
+        family: modelFamilyFromGitHubModel(model),
         jsonMode: false,
         extraHeaders: {
           Accept: "application/vnd.github+json",
@@ -332,6 +333,19 @@ function slugProviderId(value) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 48) || "model";
+}
+
+function modelFamilyFromGitHubModel(model) {
+  const normalized = String(model || "").toLowerCase();
+  if (/anthropic|claude/.test(normalized)) return "claude";
+  if (/google|gemini|gemma/.test(normalized)) return "google";
+  if (/mistral|mixtral|codestral|magistral|ministral/.test(normalized)) return "mistral";
+  if (/meta|llama/.test(normalized)) return "meta";
+  if (/microsoft|phi/.test(normalized)) return "microsoft";
+  if (/deepseek/.test(normalized)) return "deepseek";
+  if (/xai|grok/.test(normalized)) return "xai";
+  if (/openai|gpt-|gpt4|o1|o3|o4/.test(normalized)) return "openai";
+  return "github-models";
 }
 
 function normalizedAiMode() {
