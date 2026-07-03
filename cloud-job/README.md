@@ -26,7 +26,7 @@ Variables GitHub optionnelles :
 
 - `GITHUB_MODELS_MODEL` : modèle GitHub Models principal à utiliser, par défaut `mistral-ai/mistral-medium-2505`.
 - `GITHUB_MODELS_MODEL_POOL` : liste de modèles GitHub Models à tenter en mode multi-IA.
-- `GITHUB_MODELS_FALLBACK_MODELS` : liste de secours utilisée si aucun pool n’est configuré. Par défaut, le job tente `mistral-ai/mistral-medium-2505`, puis `openai/gpt-4.1`, `meta/llama-4-scout-17b-16e-instruct` et `mistral-ai/mistral-small-2503`. Le premier est priorisé parce qu'il a été le plus stable au dernier smoke gratuit, les autres restent disponibles en redondance.
+- `GITHUB_MODELS_FALLBACK_MODELS` : liste de secours utilisée si aucun pool n’est configuré. Par défaut, le job tente `mistral-ai/mistral-medium-2505`, puis des modèles gratuits testés en renfort : `openai/gpt-4.1-mini`, `deepseek/deepseek-v3-0324`, `cohere/cohere-command-a`, `microsoft/phi-4-mini-instruct`, `meta/llama-3.3-70b-instruct` et `mistral-ai/ministral-3b`. Le premier est priorisé parce qu'il a été le plus stable au dernier smoke gratuit, les autres restent disponibles en redondance.
 
 Secrets IA gratuits optionnels en renfort :
 

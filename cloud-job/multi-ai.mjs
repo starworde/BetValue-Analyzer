@@ -7,7 +7,7 @@ const AI_CACHE_ENABLED = process.env.AI_CACHE_ENABLED === "1";
 const AI_REQUIRE_REQUESTS = process.env.AI_REQUIRE_REQUESTS === "1";
 const MAX_AI_FIELD = 520;
 const DEFAULT_GITHUB_MODELS_PRIMARY = "mistral-ai/mistral-medium-2505";
-const DEFAULT_GITHUB_MODELS_FALLBACKS = "openai/gpt-4.1,meta/llama-4-scout-17b-16e-instruct,mistral-ai/mistral-small-2503";
+const DEFAULT_GITHUB_MODELS_FALLBACKS = "openai/gpt-4.1-mini,deepseek/deepseek-v3-0324,cohere/cohere-command-a,microsoft/phi-4-mini-instruct,meta/llama-3.3-70b-instruct,mistral-ai/ministral-3b";
 
 const REQUIRED_JSON_KEYS = [
   "titreAnalyse",
@@ -382,6 +382,7 @@ function modelFamilyFromGitHubModel(model) {
   if (/meta|llama/.test(normalized)) return "meta";
   if (/microsoft|phi/.test(normalized)) return "microsoft";
   if (/deepseek/.test(normalized)) return "deepseek";
+  if (/cohere|command/.test(normalized)) return "cohere";
   if (/xai|grok/.test(normalized)) return "xai";
   if (/openai|gpt-|gpt4|o1|o3|o4/.test(normalized)) return "openai";
   return "github-models";
